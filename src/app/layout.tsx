@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { LanguageProvider } from "@/components/i18n/language-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,7 +15,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CatalogBridge",
+  title: {
+    default: "CatalogBridge",
+    template: "%s | CatalogBridge",
+  },
   description: "JakMall to Shopee listing automation",
 };
 
@@ -21,9 +26,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      data-scroll-behavior="smooth"
+      className={`${geistSans.variable} ${geistMono.variable} h-full`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full">
+        <LanguageProvider><TooltipProvider>{children}</TooltipProvider></LanguageProvider>
+      </body>
     </html>
   );
 }
