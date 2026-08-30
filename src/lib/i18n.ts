@@ -299,6 +299,8 @@ const indonesian: Record<string, string> = {
 
   "Sign in": "Masuk",
   "Product Listing Automation": "Otomasi Listing Produk",
+  "Welcome back": "Selamat datang kembali",
+  "Sign in to continue to CatalogBridge.": "Masuk untuk melanjutkan ke CatalogBridge.",
   "Sign in to the workspace": "Masuk ke ruang kerja",
   "Internal product-listing operations": "Operasi listing produk internal",
   "Email": "Email",
