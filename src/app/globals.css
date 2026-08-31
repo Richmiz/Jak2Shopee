@@ -156,6 +156,22 @@
   container-type: inline-size;
 }
 
+.import-step-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.product-detail-dialog {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+@media (min-width: 40rem) {
+  .import-step-grid {
+    gap: 1rem;
+  }
+}
+
 .metric-grid,
 .dashboard-main-grid {
   display: grid;

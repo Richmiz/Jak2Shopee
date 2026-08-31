@@ -1,6 +1,13 @@
 import { getSession } from "@/app/actions/auth";
-import { updateProduct } from "@/server/catalog-store.mts";
+import { getProductDetails, updateProduct } from "@/server/catalog-store.mts";
 import { updateProductSchema } from "@/server/catalog-types.mts";
+
+export async function GET(_request: Request, { params }: RouteContext<"/api/products/[id]">) {
+  if (!await getSession()) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const { id } = await params;
+  const product = getProductDetails(id);
+  return product ? Response.json(product) : Response.json({ error: "Product not found." }, { status: 404 });
+}
 
 export async function PATCH(request: Request, { params }: RouteContext<"/api/products/[id]">) {
   if (!await getSession()) return Response.json({ error: "Unauthorized" }, { status: 401 });

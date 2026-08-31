@@ -23,6 +23,36 @@ export type Product = {
   accent: string;
 };
 
+export type ProductDetailImage = {
+  sourceUrl: string;
+  position: number;
+  alt: string;
+  mimeType?: string;
+  status: "PENDING" | "VALID" | "INVALID";
+};
+
+export type ProductDetailVariant = {
+  name: string;
+  option: string;
+  sku: string;
+  price: number | null;
+  stock: number | null;
+  attributes: Record<string, string>;
+};
+
+export type ProductDetails = Product & {
+  canonicalUrl: string;
+  sourceProductId: string;
+  description: string;
+  currency: string;
+  attributes: Record<string, string>;
+  warnings: string[];
+  images: ProductDetailImage[];
+  variants: ProductDetailVariant[];
+  extractedAt: string;
+  updatedAtIso: string;
+};
+
 export type JobEvent = { time: string; level: "INFO" | "SUCCESS" | "WARNING" | "ERROR"; message: string };
 export type Job = { id: string; productName: string; status: ProductStatus; stage: string; attempts: number; duration: string; startedAt: string; evidencePath?: string; errorMessage?: string; events: JobEvent[] };
 

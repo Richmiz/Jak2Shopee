@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
-import { claimNextJob, createImport, findDuplicate, getImport, listProducts, openCatalogDatabase, saveProduct } from "../src/server/catalog-store.mts";
+import { claimNextJob, createImport, findDuplicate, getImport, getProductDetails, listProducts, openCatalogDatabase, saveProduct } from "../src/server/catalog-store.mts";
 import type { NormalizedProduct } from "../src/server/catalog-types.mts";
 
 const directory = mkdtempSync(path.join(tmpdir(), "catalogbridge-test-"));
@@ -22,7 +22,12 @@ test("persists a queued import and normalized product", () => {
   };
   assert.equal(findDuplicate(product, database), undefined);
   saveProduct(job.id, product, "READY", database);
-  assert.equal(listProducts(database).length, 1);
+  const listed = listProducts(database);
+  assert.equal(listed.length, 1);
+  const details = getProductDetails(listed[0].id, database);
+  assert.equal(details?.description, "Complete description");
+  assert.equal(details?.images[0]?.sourceUrl, "https://cdn.example.test/1.jpg");
+  assert.deepEqual(details?.warnings, []);
   assert.equal(getImport(created.id, database)?.status, "COMPLETED");
   assert.equal(findDuplicate(product, database)?.sku, "SKU-1");
 });

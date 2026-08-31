@@ -10,7 +10,7 @@
     "worker": "node src/worker.mts",
     "worker:once": "node src/worker.mts --once",
     "db:init": "node src/db-init.mts",
-    "test": "node --test tests/catalog-store.test.mts tests/jakmall-parser.test.mts"
+    "test": "node --test tests/catalog-store.test.mts tests/jakmall-parser.test.mts tests/rendered-price.test.mts"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

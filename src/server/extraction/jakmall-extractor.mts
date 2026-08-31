@@ -3,6 +3,7 @@ import path from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
 import { assertJakMallUrl, CatalogError, type ImportOptions, type NormalizedProduct } from "../catalog-types.mts";
 import { parseJakMallProduct, type RenderedProductHints } from "./jakmall-parser.mts";
+import { selectRenderedPrice, type RenderedPriceCandidate } from "./rendered-price.mts";
 
 type StageReporter = (stage: string, message: string, level?: "INFO" | "SUCCESS" | "WARNING" | "ERROR") => void;
 type BrowserMode = "adaptive" | "headless" | "visible";
@@ -119,7 +120,7 @@ export class JakMallExtractor {
   }
 
   private async renderedProductHints(page: Page, sourceUrl: string): Promise<RenderedProductHints> {
-    return page.locator("body").evaluate((body, url) => {
+    const rendered = await page.locator("body").evaluate((body, url) => {
       const clean = (value: string | null | undefined) => value?.replace(/\s+/g, " ").trim() ?? "";
       const visible = (element: Element) => {
         const rect = element.getBoundingClientRect();
@@ -151,24 +152,32 @@ export class JakMallExtractor {
       const titleTop = candidates[0]?.top ?? 0;
 
       const moneyCandidates = [...body.querySelectorAll("*")]
-        .filter((element) => visible(element) && element.children.length <= 1)
+        .filter((element) => visible(element) && element.children.length <= 4)
         .flatMap((element) => {
           const value = clean(element.textContent);
           const matches = [...value.matchAll(/Rp\s*([\d.]+)/gi)];
-          if (!matches.length || value.length > 100) return [];
+          if (!matches.length || value.length > 140) return [];
           const style = getComputedStyle(element);
           const rect = element.getBoundingClientRect();
           const rgb = style.color.match(/\d+/g)?.map(Number) ?? [];
           const warmColor = rgb.length >= 3 && rgb[0] > rgb[1] * 1.25 && rgb[0] > rgb[2] * 1.25;
-          let score = (parseFloat(style.fontSize) || 0) * 4;
-          if (Number(style.fontWeight) >= 600 || /bold|semibold/.test(style.fontWeight)) score += 20;
-          if (warmColor) score += 35;
-          if (titleTop && Math.abs(rect.top - titleTop) < 350) score += 20;
-          if (/line-through/.test(style.textDecorationLine) || /harga normal|sebelum|hemat|diskon|diprosip|ongkir/i.test(value)) score -= 80;
-          return matches.map((match) => ({ amount: Number(match[1].replaceAll(".", "")), score }));
+          const parent = element.parentElement;
+          return matches.map((match) => ({
+            amount: Number(match[1].replaceAll(".", "")),
+            text: match[0],
+            parentText: clean(parent?.textContent).slice(0, 240),
+            className: clean(element.getAttribute("class")).toLowerCase(),
+            parentClassName: clean(parent?.getAttribute("class")).toLowerCase(),
+            fontSize: parseFloat(style.fontSize) || 0,
+            fontWeight: Number(style.fontWeight) || (/bold|semibold/.test(style.fontWeight) ? 700 : 400),
+            warmColor,
+            lineThrough: /line-through/.test(style.textDecorationLine),
+            top: rect.top,
+            titleTop,
+            childCount: element.children.length,
+          }));
         })
-        .filter((candidate) => candidate.amount > 0)
-        .sort((left, right) => right.score - left.score);
+        .filter((candidate) => candidate.amount > 0);
 
       const bodyText = clean(body.textContent);
       const sku = bodyText.match(/Kode\s+SKU\s*:?\s*([A-Z0-9_-]+)/i)?.[1];
@@ -186,8 +195,17 @@ export class JakMallExtractor {
         .filter((value) => /^https?:/i.test(value) && !/logo|icon|avatar|payment|courier/i.test(value)))]
         .slice(0, 12);
 
-      return { title, sourcePrice: moneyCandidates[0]?.amount, description, sku, stock, weightGrams, images };
+      return { title, moneyCandidates, description, sku, stock, weightGrams, images };
     }, sourceUrl);
+    return {
+      title: rendered.title,
+      sourcePrice: selectRenderedPrice(rendered.moneyCandidates as RenderedPriceCandidate[]),
+      description: rendered.description,
+      sku: rendered.sku,
+      stock: rendered.stock,
+      weightGrams: rendered.weightGrams,
+      images: rendered.images,
+    };
   }
 
   private async waitForVerification(page: Page) {

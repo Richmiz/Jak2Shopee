@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ImportOptions, NormalizedProduct } from "./catalog-types.mts";
-import type { Job, JobEvent, Product, ProductStatus } from "../lib/catalog-data.ts";
+import type { Job, JobEvent, Product, ProductDetails, ProductStatus } from "../lib/catalog-data.ts";
 
 type JobRow = {
   id: string;
@@ -26,14 +26,21 @@ type JobRow = {
 type ProductRow = {
   id: string;
   source_url: string;
+  canonical_url: string;
+  source_product_id: string;
   title: string;
+  description: string;
   sku: string;
   source_price: number;
   selling_price: number;
+  currency: string;
   status: ProductStatus;
   stock: number;
   weight_grams: number;
   category: string;
+  attributes_json: string;
+  warnings_json: string;
+  extracted_at: string;
   updated_at: string;
 };
 
@@ -340,6 +347,46 @@ const accents = ["from-violet-100 to-indigo-100 text-violet-700", "from-sky-100 
 export function listProducts(database = getCatalogDatabase()): Product[] {
   const rows = database.prepare("SELECT id,source_url,title,sku,source_price,selling_price,status,stock,weight_grams,category,updated_at FROM products ORDER BY updated_at DESC").all() as unknown as ProductRow[];
   return rows.map((row, index) => ({ id: row.id, sourceUrl: row.source_url, name: row.title, sku: row.sku || "No SKU", sourcePrice: row.source_price, sellingPrice: row.selling_price, status: row.status, updatedAt: relativeTime(row.updated_at), stock: row.stock, weightGrams: row.weight_grams, category: row.category || "Category requires review", accent: accents[index % accents.length] }));
+}
+
+export function getProductDetails(productId: string, database = getCatalogDatabase()): ProductDetails | null {
+  const row = database.prepare("SELECT * FROM products WHERE id=?").get(productId) as unknown as ProductRow | undefined;
+  if (!row) return null;
+  const images = database.prepare("SELECT source_url AS sourceUrl,position,alt,mime_type AS mimeType,status FROM product_images WHERE product_id=? ORDER BY position").all(productId) as unknown as ProductDetails["images"];
+  const variantRows = database.prepare("SELECT name,option_value AS option,sku,price,stock,attributes_json AS attributesJson FROM product_variants WHERE product_id=? ORDER BY rowid").all(productId) as Array<{ name: string; option: string; sku: string; price: number | null; stock: number | null; attributesJson: string }>;
+  let attributes: Record<string, string> = {};
+  let warnings: string[] = [];
+  try { attributes = JSON.parse(row.attributes_json) as Record<string, string>; } catch { /* Preserve an empty safe value for legacy rows. */ }
+  try { warnings = JSON.parse(row.warnings_json) as string[]; } catch { /* Preserve an empty safe value for legacy rows. */ }
+  const variants = variantRows.map(({ attributesJson, ...variant }) => {
+    let variantAttributes: Record<string, string> = {};
+    try { variantAttributes = JSON.parse(attributesJson) as Record<string, string>; } catch { /* Preserve an empty safe value for legacy rows. */ }
+    return { ...variant, attributes: variantAttributes };
+  });
+  return {
+    id: row.id,
+    sourceUrl: row.source_url,
+    canonicalUrl: row.canonical_url,
+    sourceProductId: row.source_product_id,
+    name: row.title,
+    description: row.description,
+    sku: row.sku || "No SKU",
+    sourcePrice: row.source_price,
+    sellingPrice: row.selling_price,
+    currency: row.currency,
+    status: row.status,
+    updatedAt: relativeTime(row.updated_at),
+    updatedAtIso: row.updated_at,
+    extractedAt: row.extracted_at,
+    stock: row.stock,
+    weightGrams: row.weight_grams,
+    category: row.category || "Category requires review",
+    accent: accents[0],
+    attributes,
+    warnings,
+    images,
+    variants,
+  };
 }
 
 function jobProductStatus(status: string, productStatus?: ProductStatus): ProductStatus {
