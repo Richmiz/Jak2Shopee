@@ -47,7 +47,7 @@ Production sign-in fails closed when any required authentication variable is mis
 
 Stage 1 accepts one or up to 20 HTTPS JakMall product URLs, persists durable jobs in SQLite, extracts product data in local Chrome, validates images, detects duplicates, and saves normalized products for review. No Shopee submission is attempted.
 
-The browser worker is visible by default. If JakMall presents a legitimate human-verification screen, complete it in the opened Chrome window. The worker reuses its local browser profile, never automates CAPTCHA challenges, and records bounded failure evidence under `data/evidence` when extraction cannot continue.
+The browser worker uses adaptive mode by default: normal extraction stays in the background. If JakMall presents a legitimate human-verification screen, one temporary Chrome window opens for that verification and closes when the job finishes. The worker reuses its local browser profile, never automates CAPTCHA challenges, recovers cleanly if the window is closed, and records bounded failure evidence under `data/evidence` when extraction cannot continue. Set `CATALOGBRIDGE_BROWSER_MODE` to `headless`, `adaptive`, or `visible` when a different operating mode is required.
 
 SQLite runs in WAL mode and is appropriate for the current local, single-operator stage. Replace the storage adapter with PostgreSQL before deploying a multi-user or multi-instance worker setup.
 
