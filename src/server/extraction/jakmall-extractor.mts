@@ -1,8 +1,8 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
 import { assertJakMallUrl, CatalogError, type ImportOptions, type NormalizedProduct } from "../catalog-types.mts";
-import { parseJakMallProduct } from "./jakmall-parser.mts";
+import { parseJakMallProduct, type RenderedProductHints } from "./jakmall-parser.mts";
 
 type StageReporter = (stage: string, message: string, level?: "INFO" | "SUCCESS" | "WARNING" | "ERROR") => void;
 type BrowserMode = "adaptive" | "headless" | "visible";
@@ -92,7 +92,11 @@ export class JakMallExtractor {
     await mkdir(directory, { recursive: true });
     const target = path.join(directory, `${jobId}-${Date.now()}.png`);
     try {
-      await page.screenshot({ path: target, fullPage: true });
+      const [html] = await Promise.all([
+        page.content(),
+        page.screenshot({ path: target, fullPage: true }),
+      ]);
+      await writeFile(target.replace(/\.png$/, ".html"), html, "utf8");
       return target;
     } catch {
       return undefined;
@@ -112,6 +116,78 @@ export class JakMallExtractor {
       bodyText: await page.locator("body").innerText({ timeout: 10_000 }).catch(() => ""),
       title: await page.title().catch(() => ""),
     };
+  }
+
+  private async renderedProductHints(page: Page, sourceUrl: string): Promise<RenderedProductHints> {
+    return page.locator("body").evaluate((body, url) => {
+      const clean = (value: string | null | undefined) => value?.replace(/\s+/g, " ").trim() ?? "";
+      const visible = (element: Element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0;
+      };
+      const slugTokens = new URL(url).pathname.split("/").at(-1)?.split("-").filter((token) => token.length > 2 && !["dan", "yang", "untuk", "with", "the"].includes(token)) ?? [];
+      const candidates = [...body.querySelectorAll("h1,h2,h3,[class*='title'],[class*='name'],[class*='product']")]
+        .filter(visible)
+        .map((element) => {
+          const value = clean(element.textContent);
+          const style = getComputedStyle(element);
+          const className = clean(element.getAttribute("class")).toLowerCase();
+          const overlap = slugTokens.filter((token) => value.toLowerCase().includes(token)).length;
+          let score = overlap * 18 + Math.min(parseFloat(style.fontSize) || 0, 36);
+          if (element.tagName === "H1") score += 50;
+          else if (element.tagName === "H2") score += 20;
+          if (/product/.test(className)) score += 15;
+          if (/title|name/.test(className)) score += 12;
+          if (Number(style.fontWeight) >= 600 || /bold|semibold/.test(style.fontWeight)) score += 10;
+          if (element.getBoundingClientRect().top < 900) score += 8;
+          if (value.includes("\n") || value.length < 15 || value.length > 240) score -= 100;
+          if (/jakmall|kategori|wishlist|customer service|login|daftar/i.test(value)) score -= 50;
+          return { value, score, top: element.getBoundingClientRect().top };
+        })
+        .filter((candidate) => candidate.score > 20)
+        .sort((left, right) => right.score - left.score);
+      const title = candidates[0]?.value;
+      const titleTop = candidates[0]?.top ?? 0;
+
+      const moneyCandidates = [...body.querySelectorAll("*")]
+        .filter((element) => visible(element) && element.children.length <= 1)
+        .flatMap((element) => {
+          const value = clean(element.textContent);
+          const matches = [...value.matchAll(/Rp\s*([\d.]+)/gi)];
+          if (!matches.length || value.length > 100) return [];
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          const rgb = style.color.match(/\d+/g)?.map(Number) ?? [];
+          const warmColor = rgb.length >= 3 && rgb[0] > rgb[1] * 1.25 && rgb[0] > rgb[2] * 1.25;
+          let score = (parseFloat(style.fontSize) || 0) * 4;
+          if (Number(style.fontWeight) >= 600 || /bold|semibold/.test(style.fontWeight)) score += 20;
+          if (warmColor) score += 35;
+          if (titleTop && Math.abs(rect.top - titleTop) < 350) score += 20;
+          if (/line-through/.test(style.textDecorationLine) || /harga normal|sebelum|hemat|diskon|diprosip|ongkir/i.test(value)) score -= 80;
+          return matches.map((match) => ({ amount: Number(match[1].replaceAll(".", "")), score }));
+        })
+        .filter((candidate) => candidate.amount > 0)
+        .sort((left, right) => right.score - left.score);
+
+      const bodyText = clean(body.textContent);
+      const sku = bodyText.match(/Kode\s+SKU\s*:?\s*([A-Z0-9_-]+)/i)?.[1];
+      const weightMatch = bodyText.match(/(?:Berat|Weight)\s*:?\s*([\d.,]+)\s*(kg|g|gram)/i);
+      const weightAmount = weightMatch ? Number(weightMatch[1].replace(",", ".")) : 0;
+      const weightGrams = weightMatch ? Math.round(weightMatch[2].toLowerCase() === "kg" ? weightAmount * 1000 : weightAmount) : undefined;
+      const stock = /Stok\s+Tersedia|In\s+Stock/i.test(bodyText) ? 1 : undefined;
+      const descriptionHeading = [...body.querySelectorAll("h2,h3,h4")].find((element) => /Informasi Produk|Product Information/i.test(clean(element.textContent)));
+      const description = descriptionHeading
+        ? clean([...descriptionHeading.parentElement?.querySelectorAll("p") ?? []].map((element) => clean(element.textContent)).filter((value) => value.length > 30).join("\n\n")).slice(0, 10_000)
+        : undefined;
+      const images = [...new Set([...body.querySelectorAll("img")]
+        .filter((element) => visible(element) && element.getBoundingClientRect().width >= 70 && element.getBoundingClientRect().height >= 70 && element.getBoundingClientRect().top < 1000)
+        .map((element) => element.currentSrc || element.src)
+        .filter((value) => /^https?:/i.test(value) && !/logo|icon|avatar|payment|courier/i.test(value)))]
+        .slice(0, 12);
+
+      return { title, sourcePrice: moneyCandidates[0]?.amount, description, sku, stock, weightGrams, images };
+    }, sourceUrl);
   }
 
   private async waitForVerification(page: Page) {
@@ -171,7 +247,8 @@ export class JakMallExtractor {
       }
 
       report("EXTRACTING", "Reading structured product data and visible specifications.");
-      const product = parseJakMallProduct(await page.content(), sourceUrl, options);
+      const hints = await this.renderedProductHints(page, sourceUrl);
+      const product = parseJakMallProduct(await page.content(), sourceUrl, options, hints);
       if (options.validateImages && product.images.length) {
         report("VALIDATING_IMAGES", `Validating ${product.images.length} product image${product.images.length === 1 ? "" : "s"}.`);
         for (const image of product.images) {

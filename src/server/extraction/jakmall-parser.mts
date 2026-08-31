@@ -4,6 +4,16 @@ import { CatalogError } from "../catalog-types.mts";
 
 type JsonRecord = Record<string, unknown>;
 
+export type RenderedProductHints = {
+  title?: string;
+  sourcePrice?: number;
+  description?: string;
+  sku?: string;
+  stock?: number;
+  weightGrams?: number;
+  images?: string[];
+};
+
 function asRecord(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : null;
 }
@@ -99,7 +109,7 @@ function variantsFromOffers(offers: JsonRecord[], fallbackSku: string): ProductV
   }));
 }
 
-export function parseJakMallProduct(html: string, sourceUrl: string, options: ImportOptions): NormalizedProduct {
+export function parseJakMallProduct(html: string, sourceUrl: string, options: ImportOptions, hints: RenderedProductHints = {}): NormalizedProduct {
   const $ = cheerio.load(html);
   const records: JsonRecord[] = [];
   $('script[type="application/ld+json"]').each((_index, element) => {
@@ -109,19 +119,19 @@ export function parseJakMallProduct(html: string, sourceUrl: string, options: Im
   const offers = offerRecords(product.offers);
   const primaryOffer = offers[0] ?? {};
   const canonicalUrl = firstText($("link[rel='canonical']").attr("href"), product.url, sourceUrl).split("#")[0].split("?")[0];
-  const title = firstText(product.name, $('meta[property="og:title"]').attr("content"), $("h1").first().text());
-  const description = firstText(product.description, $('meta[property="og:description"]').attr("content"), $('meta[name="description"]').attr("content"));
-  const sourcePrice = Math.round(parseNumber(primaryOffer.price ?? asRecord(product.offers)?.lowPrice ?? $('meta[property="product:price:amount"]').attr("content") ?? $('[itemprop="price"]').first().attr("content") ?? $('[itemprop="price"]').first().text()));
-  const sku = firstText(product.sku, primaryOffer.sku, $("[data-sku]").first().attr("data-sku"));
+  const title = firstText(product.name, $('meta[property="og:title"]').attr("content"), $("h1").first().text(), hints.title);
+  const description = firstText(product.description, $('meta[property="og:description"]').attr("content"), $('meta[name="description"]').attr("content"), hints.description);
+  const sourcePrice = Math.round(parseNumber(primaryOffer.price ?? asRecord(product.offers)?.lowPrice ?? $('meta[property="product:price:amount"]').attr("content") ?? $('[itemprop="price"]').first().attr("content") ?? $('[itemprop="price"]').first().text() ?? hints.sourcePrice) || hints.sourcePrice || 0);
+  const sku = firstText(product.sku, primaryOffer.sku, $("[data-sku]").first().attr("data-sku"), hints.sku);
   const sourceProductId = firstText(product.productID, product.mpn, sku, new URL(canonicalUrl).pathname.split("/").filter(Boolean).at(-1));
   const attributes = extractAttributes($, product);
   const body = $("body").text().replace(/\s+/g, " ");
   const stockText = firstText(primaryOffer.inventoryLevel, primaryOffer.availability, attributes.Stock, attributes.Stok);
-  const stock = parseNumber(stockText) || (/instock/i.test(stockText) ? 1 : 0);
-  const weightGrams = findWeight(attributes, body);
+  const stock = parseNumber(stockText) || (/instock/i.test(stockText) ? 1 : 0) || hints.stock || 0;
+  const weightGrams = findWeight(attributes, body) || hints.weightGrams || 0;
   const category = firstText(product.category, breadcrumbCategory(records));
   const metaImages = $('meta[property="og:image"]').toArray().map((element) => $(element).attr("content") ?? "");
-  const imageUrls = unique([...imagesFrom(product.image), ...metaImages]).filter((value) => {
+  const imageUrls = unique([...imagesFrom(product.image), ...metaImages, ...(hints.images ?? [])]).filter((value) => {
     try { return ["http:", "https:"].includes(new URL(value, canonicalUrl).protocol); } catch { return false; }
   }).map((value) => new URL(value, canonicalUrl).toString()).slice(0, 12);
   const warnings: string[] = [];

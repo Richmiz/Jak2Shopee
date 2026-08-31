@@ -20,3 +20,25 @@ test("normalizes JSON-LD product data", async () => {
   assert.equal(product.images.length, 2);
   assert.equal(product.attributes.Switch, "Brown");
 });
+
+test("uses rendered browser hints when JakMall omits structured product fields", () => {
+  const product = parseJakMallProduct(
+    "<html><head><link rel='canonical' href='https://www.jakmall.com/store/rendered-product'></head><body></body></html>",
+    "https://www.jakmall.com/store/rendered-product",
+    { markupPercent: 20, validateImages: true, detectDuplicates: true, requireReview: true },
+    {
+      title: "Rendered JakMall Product",
+      sourcePrice: 60900,
+      description: "Product description extracted from the rendered page.",
+      sku: "SKU-RENDERED",
+      stock: 1,
+      weightGrams: 1300,
+      images: ["https://cdn.example.test/rendered.jpg"],
+    },
+  );
+  assert.equal(product.title, "Rendered JakMall Product");
+  assert.equal(product.sourcePrice, 60900);
+  assert.equal(product.sellingPrice, 73080);
+  assert.equal(product.sku, "SKU-RENDERED");
+  assert.equal(product.weightGrams, 1300);
+});
