@@ -29,6 +29,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/workspace/page-header";
 import { formatMoney } from "@/lib/catalog-data";
+import { extractListedRupiahPrice, formatGroupedInteger } from "@/lib/product-pricing.mts";
 import { cn } from "@/lib/utils";
 
 type ImportMode = "single" | "batch";
@@ -95,16 +96,25 @@ function toPreview(raw: NonNullable<ApiJob["product"]>): PreviewProduct {
     const sourceUrl = String(image.sourceUrl ?? "");
     return sourceUrl ? [{ sourceUrl, alt: String(image.alt ?? raw.title ?? "Product image"), status: String(image.status ?? "PENDING") }] : [];
   });
+  const storedSourcePrice = Number(raw.source_price ?? 0);
+  const storedSellingPrice = Number(raw.selling_price ?? 0);
+  const description = String(raw.description ?? "");
+  const listedSourcePrice = extractListedRupiahPrice(description);
+  const sourcePrice = listedSourcePrice ?? storedSourcePrice;
+  const pricingMultiplier = storedSourcePrice > 0 && storedSellingPrice > 0 ? storedSellingPrice / storedSourcePrice : 1.2;
+  const sellingPrice = listedSourcePrice && listedSourcePrice !== storedSourcePrice
+    ? Math.round(listedSourcePrice * pricingMultiplier)
+    : storedSellingPrice;
   return {
     id: String(raw.id),
     title: String(raw.title ?? ""),
     sku: String(raw.sku ?? ""),
-    sourcePrice: Number(raw.source_price ?? 0),
-    sellingPrice: Number(raw.selling_price ?? 0),
+    sourcePrice,
+    sellingPrice,
     stock: Number(raw.stock ?? 0),
     weightGrams: Number(raw.weight_grams ?? 0),
     category: String(raw.category ?? ""),
-    description: String(raw.description ?? ""),
+    description,
     images,
     warnings,
   };
@@ -133,6 +143,26 @@ function Provenance({ children, warning = false }: { children: string; warning?:
 function Field({ id, label, value, onChange, type = "text", provenance = "Extracted" }: { id: string; label: string; value: string | number; onChange: (value: string) => void; type?: string; provenance?: string }) {
   const { t } = useLanguage();
   return <div className="space-y-2"><div className="flex items-center justify-between gap-2"><Label htmlFor={id}>{t(label)}</Label><Provenance>{provenance}</Provenance></div><Input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} /></div>;
+}
+
+function AffixedNumberField({ id, label, value, onChange, prefix, suffix, provenance = "Extracted" }: { id: string; label: string; value: number; onChange: (value: number) => void; prefix?: string; suffix?: string; provenance?: string }) {
+  const { t } = useLanguage();
+  return <div className="space-y-2">
+    <div className="flex items-center justify-between gap-2"><Label htmlFor={id}>{t(label)}</Label><Provenance>{provenance}</Provenance></div>
+    <div className="relative">
+      {prefix ? <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm font-medium text-muted-foreground">{prefix}</span> : null}
+      <Input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        value={formatGroupedInteger(value)}
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => onChange(Number(event.currentTarget.value.replace(/\D/g, "")) || 0)}
+        className={cn("font-mono tabular-nums", prefix && "pl-10", suffix && "pr-10")}
+      />
+      {suffix ? <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-medium text-muted-foreground">{suffix}</span> : null}
+    </div>
+  </div>;
 }
 
 function ProductImage({ image, className }: { image: PreviewImage; className?: string }) {
@@ -351,7 +381,7 @@ export function ImportWorkspace({ initialMode = "single" }: { initialMode?: Impo
       </CardContent></Card>
     </div> : null}
 
-    {step === 2 ? <Card className="overflow-hidden animate-in fade-in slide-in-from-bottom-2"><div className="h-1 bg-gradient-to-r from-primary via-violet-400 to-indigo-400" /><CardContent className="grid min-h-[430px] place-items-center p-6 text-center sm:p-10"><div className="w-full max-w-xl">
+    {step === 2 ? <Card className="overflow-hidden animate-in fade-in slide-in-from-bottom-2"><CardContent className="grid min-h-[430px] place-items-center p-6 text-center sm:p-10"><div className="w-full max-w-xl">
       <span className={cn("mx-auto grid size-16 place-items-center rounded-2xl", currentStage === "FAILED" ? "bg-rose-50 text-rose-600" : currentStage === "WAITING_FOR_INPUT" ? "bg-amber-50 text-amber-600" : "bg-primary/10 text-primary")}>{currentStage === "FAILED" ? <AlertTriangle className="size-7" /> : currentStage === "WAITING_FOR_INPUT" ? <FileSearch className="size-7" /> : <CircleDashed className="size-7 animate-spin" />}</span>
       <Badge variant="outline" className="mt-5">{t(mode === "single" ? "Single product" : "Batch import")}</Badge>
       <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">{t(stageLabel(currentStage))}</h2>
@@ -363,7 +393,7 @@ export function ImportWorkspace({ initialMode = "single" }: { initialMode?: Impo
     {step === 3 && product ? <Card className="overflow-hidden animate-in fade-in slide-in-from-bottom-2"><div className="h-1 bg-gradient-to-r from-emerald-400 via-primary to-violet-500" /><CardHeader><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><Badge className="bg-emerald-600"><CheckCircle2 className="size-3" />{t("Extraction complete")}</Badge>{product.warnings.length ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">{t("{count} items need review", { count: product.warnings.length })}</Badge> : null}</div><CardTitle className="mt-3">{t("Review extracted product")}</CardTitle><CardDescription>{t("Images and normalized fields are ready for confirmation.")}</CardDescription></div><Button onClick={() => void saveReview()} disabled={processing}>{processing ? <CircleDashed className="size-4 animate-spin" /> : <Check className="size-4" />}{t("Save reviewed product")}</Button></div></CardHeader><CardContent>
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(17rem,0.78fr)_minmax(0,1.35fr)]">
         <div className="space-y-4"><ProductGallery key={product.id} product={product} /><div className="rounded-2xl border p-4"><div className="flex items-center gap-2"><Badge variant="outline">JakMall</Badge><ArrowRight className="size-3 text-muted-foreground" /><Badge variant="secondary">{t("Normalized")}</Badge></div><h2 className="mt-3 text-lg font-semibold tracking-[-0.02em]">{product.title}</h2><p className="mt-1 font-mono text-xs text-muted-foreground">{product.sku || t("No source SKU")}</p><div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl bg-muted/40 p-3"><p className="text-xs text-muted-foreground">{t("Source price")}</p><p className="mt-1 font-mono text-sm font-semibold">{formatMoney(product.sourcePrice)}</p></div><div className="rounded-xl bg-primary/[0.06] p-3"><p className="text-xs text-muted-foreground">{t("Selling price")}</p><p className="mt-1 font-mono text-sm font-semibold text-primary">{formatMoney(product.sellingPrice)}</p></div></div></div>{product.warnings.length ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><div className="flex gap-2"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><strong>{t("Review required")}</strong><ul className="mt-1 list-disc pl-4">{product.warnings.slice(0, 5).map((warning) => <li key={warning}>{t(warning)}</li>)}</ul></div></div></div> : null}</div>
-        <div className="space-y-6"><div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-4"><Field id="title" label="Product title" value={product.title} onChange={(title) => setProduct({ ...product, title })} /><Field id="sku" label="Seller SKU" value={product.sku} onChange={(sku) => setProduct({ ...product, sku })} /><Field id="source-price" label="Source price" type="number" value={product.sourcePrice} onChange={(value) => setProduct({ ...product, sourcePrice: Number(value) })} /><Field id="selling-price" label="Selling price" type="number" value={product.sellingPrice} onChange={(value) => setProduct({ ...product, sellingPrice: Number(value) })} provenance="Pricing rule" /><Field id="stock" label="Stock" type="number" value={product.stock} onChange={(value) => setProduct({ ...product, stock: Number(value) })} /><Field id="weight" label="Weight (grams)" type="number" value={product.weightGrams} onChange={(value) => setProduct({ ...product, weightGrams: Number(value) })} /></div><div className="space-y-2"><div className="flex items-center justify-between"><Label htmlFor="category">{t("Destination category")}</Label><Provenance warning>Needs confirmation</Provenance></div><Input id="category" value={product.category} onChange={(event) => setProduct({ ...product, category: event.target.value })} placeholder={t("Enter the category to use during Shopee mapping")} /></div><div className="space-y-2"><div className="flex items-center justify-between"><Label htmlFor="description">{t("Description")}</Label><Provenance>Extracted</Provenance></div><Textarea id="description" className="min-h-40" value={product.description} onChange={(event) => setProduct({ ...product, description: event.target.value })} /></div><Separator /><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="max-w-xl text-sm leading-6 text-muted-foreground">{t("Saving changes updates only the local product record.")}</p><Button onClick={() => void saveReview()} disabled={processing}>{t("Save reviewed product")}<ArrowRight className="size-4" /></Button></div></div>
+        <div className="space-y-6"><div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-4"><Field id="title" label="Product title" value={product.title} onChange={(title) => setProduct({ ...product, title })} /><Field id="sku" label="Seller SKU" value={product.sku} onChange={(sku) => setProduct({ ...product, sku })} /><AffixedNumberField id="source-price" label="Source price" prefix="Rp" value={product.sourcePrice} onChange={(sourcePrice) => setProduct({ ...product, sourcePrice, sellingPrice: Math.round(sourcePrice * (1 + (Number(markup) || 0) / 100)) })} /><AffixedNumberField id="selling-price" label="Selling price" prefix="Rp" value={product.sellingPrice} onChange={(sellingPrice) => setProduct({ ...product, sellingPrice })} provenance="Pricing rule" /><Field id="stock" label="Stock" type="number" value={product.stock} onChange={(value) => setProduct({ ...product, stock: Number(value) })} /><AffixedNumberField id="weight" label="Weight" suffix="g" value={product.weightGrams} onChange={(weightGrams) => setProduct({ ...product, weightGrams })} /></div><div className="space-y-2"><div className="flex items-center justify-between"><Label htmlFor="category">{t("Destination category")}</Label><Provenance warning>Needs confirmation</Provenance></div><Input id="category" value={product.category} onChange={(event) => setProduct({ ...product, category: event.target.value })} placeholder={t("Enter the category to use during Shopee mapping")} /></div><div className="space-y-2"><div className="flex items-center justify-between"><Label htmlFor="description">{t("Description")}</Label><Provenance>Extracted</Provenance></div><Textarea id="description" className="min-h-40" value={product.description} onChange={(event) => setProduct({ ...product, description: event.target.value })} /></div><Separator /><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="max-w-xl text-sm leading-6 text-muted-foreground">{t("Saving changes updates only the local product record.")}</p><Button onClick={() => void saveReview()} disabled={processing}>{t("Save reviewed product")}<ArrowRight className="size-4" /></Button></div></div>
       </div>
     </CardContent></Card> : null}
 

@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ImportOptions, NormalizedProduct } from "./catalog-types.mts";
 import type { Job, JobEvent, Product, ProductDetails, ProductStatus } from "../lib/catalog-data.ts";
+import { extractListedRupiahPrice } from "../lib/product-pricing.mts";
 
 type JobRow = {
   id: string;
@@ -344,9 +345,16 @@ function relativeTime(iso: string) {
 
 const accents = ["from-violet-100 to-indigo-100 text-violet-700", "from-sky-100 to-cyan-100 text-sky-700", "from-amber-100 to-orange-100 text-amber-700", "from-emerald-100 to-teal-100 text-emerald-700"];
 
+function reconciledPrices(row: Pick<ProductRow, "description" | "source_price" | "selling_price">) {
+  const listedSourcePrice = extractListedRupiahPrice(row.description);
+  if (!listedSourcePrice || listedSourcePrice === row.source_price) return { sourcePrice: row.source_price, sellingPrice: row.selling_price };
+  const multiplier = row.source_price > 0 && row.selling_price > 0 ? row.selling_price / row.source_price : 1.2;
+  return { sourcePrice: listedSourcePrice, sellingPrice: Math.round(listedSourcePrice * multiplier) };
+}
+
 export function listProducts(database = getCatalogDatabase()): Product[] {
-  const rows = database.prepare("SELECT id,source_url,title,sku,source_price,selling_price,status,stock,weight_grams,category,updated_at FROM products ORDER BY updated_at DESC").all() as unknown as ProductRow[];
-  return rows.map((row, index) => ({ id: row.id, sourceUrl: row.source_url, name: row.title, sku: row.sku || "No SKU", sourcePrice: row.source_price, sellingPrice: row.selling_price, status: row.status, updatedAt: relativeTime(row.updated_at), stock: row.stock, weightGrams: row.weight_grams, category: row.category || "Category requires review", accent: accents[index % accents.length] }));
+  const rows = database.prepare("SELECT id,source_url,title,description,sku,source_price,selling_price,status,stock,weight_grams,category,updated_at FROM products ORDER BY updated_at DESC").all() as unknown as ProductRow[];
+  return rows.map((row, index) => ({ id: row.id, sourceUrl: row.source_url, name: row.title, sku: row.sku || "No SKU", ...reconciledPrices(row), status: row.status, updatedAt: relativeTime(row.updated_at), stock: row.stock, weightGrams: row.weight_grams, category: row.category || "Category requires review", accent: accents[index % accents.length] }));
 }
 
 export function getProductDetails(productId: string, database = getCatalogDatabase()): ProductDetails | null {
@@ -363,6 +371,7 @@ export function getProductDetails(productId: string, database = getCatalogDataba
     try { variantAttributes = JSON.parse(attributesJson) as Record<string, string>; } catch { /* Preserve an empty safe value for legacy rows. */ }
     return { ...variant, attributes: variantAttributes };
   });
+  const prices = reconciledPrices(row);
   return {
     id: row.id,
     sourceUrl: row.source_url,
@@ -371,8 +380,7 @@ export function getProductDetails(productId: string, database = getCatalogDataba
     name: row.title,
     description: row.description,
     sku: row.sku || "No SKU",
-    sourcePrice: row.source_price,
-    sellingPrice: row.selling_price,
+    ...prices,
     currency: row.currency,
     status: row.status,
     updatedAt: relativeTime(row.updated_at),
@@ -419,4 +427,9 @@ export function updateProduct(productId: string, values: { title: string; descri
   const status: ProductStatus = values.title && values.sellingPrice > 0 && values.category && imageCount > 0 ? "READY" : "NEEDS_REVIEW";
   const result = database.prepare("UPDATE products SET title=?,description=?,sku=?,source_price=?,selling_price=?,stock=?,weight_grams=?,category=?,status=?,updated_at=? WHERE id=?").run(values.title, values.description, values.sku, values.sourcePrice, values.sellingPrice, values.stock, values.weightGrams, values.category, status, timestamp, productId);
   return Number(result.changes) ? { id: productId, status, updatedAt: timestamp } : null;
+}
+
+export function deleteProduct(productId: string, database = getCatalogDatabase()) {
+  const result = database.prepare("DELETE FROM products WHERE id=?").run(productId);
+  return Number(result.changes) > 0;
 }

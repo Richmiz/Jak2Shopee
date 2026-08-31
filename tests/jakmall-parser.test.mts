@@ -42,3 +42,25 @@ test("uses rendered browser hints when JakMall omits structured product fields",
   assert.equal(product.sku, "SKU-RENDERED");
   assert.equal(product.weightGrams, 1300);
 });
+
+test("prefers the visible product description and reconciles the listed JakMall price", () => {
+  const html = `<html><head>
+    <link rel="canonical" href="https://www.jakmall.com/store/bolde-supermop">
+    <meta property="og:description" content="Pembersih Rumah BOLDe Supermop harga Rp 309 . 000 dikirim dari Tangerang.">
+    <script type="application/ld+json">{"@type":"Product","name":"Jual BOLDe Supermop","sku":"6703613588075Garansi","description":"SEO product summary","offers":{"@type":"Offer","price":"11600"}}</script>
+  </head><body></body></html>`;
+  const visibleDescription = "Bolde Supermop ELEGANTE\nKapasitas 7 liter\nBerat paket: 6 kg.";
+  const product = parseJakMallProduct(
+    html,
+    "https://www.jakmall.com/store/bolde-supermop",
+    { markupPercent: 20, validateImages: true, detectDuplicates: true, requireReview: true },
+    { title: "BOLDe Supermop", sourcePrice: 11_600, description: visibleDescription, sku: "6703613588075", weightGrams: 6000 },
+  );
+
+  assert.equal(product.title, "BOLDe Supermop");
+  assert.equal(product.sku, "6703613588075");
+  assert.equal(product.description, visibleDescription);
+  assert.equal(product.sourcePrice, 309_000);
+  assert.equal(product.sellingPrice, 370_800);
+  assert.equal(product.weightGrams, 6000);
+});

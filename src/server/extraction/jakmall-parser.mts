@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { extractListedRupiahPrice } from "../../lib/product-pricing.mts";
 import type { ImportOptions, NormalizedProduct, ProductVariant } from "../catalog-types.mts";
 import { CatalogError } from "../catalog-types.mts";
 
@@ -119,10 +120,14 @@ export function parseJakMallProduct(html: string, sourceUrl: string, options: Im
   const offers = offerRecords(product.offers);
   const primaryOffer = offers[0] ?? {};
   const canonicalUrl = firstText($("link[rel='canonical']").attr("href"), product.url, sourceUrl).split("#")[0].split("?")[0];
-  const title = firstText(product.name, $('meta[property="og:title"]').attr("content"), $("h1").first().text(), hints.title);
-  const description = firstText(product.description, $('meta[property="og:description"]').attr("content"), $('meta[name="description"]').attr("content"), hints.description);
-  const sourcePrice = Math.round(parseNumber(primaryOffer.price ?? asRecord(product.offers)?.lowPrice ?? $('meta[property="product:price:amount"]').attr("content") ?? $('[itemprop="price"]').first().attr("content") ?? $('[itemprop="price"]').first().text() ?? hints.sourcePrice) || hints.sourcePrice || 0);
-  const sku = firstText(product.sku, primaryOffer.sku, $("[data-sku]").first().attr("data-sku"), hints.sku);
+  const title = firstText(hints.title, product.name, $('meta[property="og:title"]').attr("content"), $("h1").first().text());
+  const metadataDescriptions = [text(product.description), text($('meta[property="og:description"]').attr("content")), text($('meta[name="description"]').attr("content"))].filter(Boolean);
+  const metadataDescription = metadataDescriptions[0] ?? "";
+  const description = firstText(hints.description, metadataDescription);
+  const metadataPrice = metadataDescriptions.map(extractListedRupiahPrice).find((value): value is number => value !== null);
+  const structuredPrice = parseNumber(primaryOffer.price ?? asRecord(product.offers)?.lowPrice ?? $('meta[property="product:price:amount"]').attr("content") ?? $('[itemprop="price"]').first().attr("content") ?? $('[itemprop="price"]').first().text());
+  const sourcePrice = Math.round(metadataPrice || hints.sourcePrice || structuredPrice || 0);
+  const sku = firstText(hints.sku, product.sku, primaryOffer.sku, $("[data-sku]").first().attr("data-sku"));
   const sourceProductId = firstText(product.productID, product.mpn, sku, new URL(canonicalUrl).pathname.split("/").filter(Boolean).at(-1));
   const attributes = extractAttributes($, product);
   const body = $("body").text().replace(/\s+/g, " ");

@@ -155,7 +155,7 @@ export class JakMallExtractor {
         .filter((element) => visible(element) && element.children.length <= 4)
         .flatMap((element) => {
           const value = clean(element.textContent);
-          const matches = [...value.matchAll(/Rp\s*([\d.]+)/gi)];
+          const matches = [...value.matchAll(/Rp\s*((?:\d\s*)+(?:\.\s*(?:\d\s*)+)*)/gi)];
           if (!matches.length || value.length > 140) return [];
           const style = getComputedStyle(element);
           const rect = element.getBoundingClientRect();
@@ -163,7 +163,7 @@ export class JakMallExtractor {
           const warmColor = rgb.length >= 3 && rgb[0] > rgb[1] * 1.25 && rgb[0] > rgb[2] * 1.25;
           const parent = element.parentElement;
           return matches.map((match) => ({
-            amount: Number(match[1].replaceAll(".", "")),
+            amount: Number(match[1].replace(/\D/g, "")),
             text: match[0],
             parentText: clean(parent?.textContent).slice(0, 240),
             className: clean(element.getAttribute("class")).toLowerCase(),
@@ -185,9 +185,10 @@ export class JakMallExtractor {
       const weightAmount = weightMatch ? Number(weightMatch[1].replace(",", ".")) : 0;
       const weightGrams = weightMatch ? Math.round(weightMatch[2].toLowerCase() === "kg" ? weightAmount * 1000 : weightAmount) : undefined;
       const stock = /Stok\s+Tersedia|In\s+Stock/i.test(bodyText) ? 1 : undefined;
-      const descriptionHeading = [...body.querySelectorAll("h2,h3,h4")].find((element) => /Informasi Produk|Product Information/i.test(clean(element.textContent)));
-      const description = descriptionHeading
-        ? clean([...descriptionHeading.parentElement?.querySelectorAll("p") ?? []].map((element) => clean(element.textContent)).filter((value) => value.length > 30).join("\n\n")).slice(0, 10_000)
+      const descriptionHeading = [...body.querySelectorAll("h2,h3,h4")].find((element) => /Informasi Produk|Product Information|Deskripsi Produk|Product Description/i.test(clean(element.textContent)));
+      const descriptionRoot = descriptionHeading?.nextElementSibling ?? descriptionHeading?.parentElement;
+      const description = descriptionRoot
+        ? (descriptionRoot as HTMLElement).innerText.replace(/\r/g, "").split("\n").map((line) => line.trim()).filter(Boolean).join("\n").slice(0, 10_000)
         : undefined;
       const images = [...new Set([...body.querySelectorAll("img")]
         .filter((element) => visible(element) && element.getBoundingClientRect().width >= 70 && element.getBoundingClientRect().height >= 70 && element.getBoundingClientRect().top < 1000)

@@ -19,7 +19,7 @@ const previousPrice = /harga\s*(normal|awal)|sebelum|retail\s*price/i;
 export function scoreRenderedPriceCandidate(candidate: RenderedPriceCandidate) {
   const context = `${candidate.className} ${candidate.parentClassName}`;
   const nearbyText = `${candidate.text} ${candidate.parentText}`;
-  const priceCount = candidate.parentText.match(/Rp\s*[\d.]+/gi)?.length ?? 0;
+  const priceCount = candidate.parentText.match(/Rp\s*(?:\d\s*)+(?:\.\s*(?:\d\s*)+)*/gi)?.length ?? 0;
   let score = Math.min(candidate.fontSize, 48) * 5;
 
   if (candidate.fontWeight >= 600) score += 20;

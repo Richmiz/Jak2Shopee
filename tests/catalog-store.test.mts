@@ -3,14 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
-import { claimNextJob, createImport, findDuplicate, getImport, getProductDetails, listProducts, openCatalogDatabase, saveProduct } from "../src/server/catalog-store.mts";
+import { claimNextJob, createImport, deleteProduct, findDuplicate, getImport, getProductDetails, listProducts, openCatalogDatabase, saveProduct } from "../src/server/catalog-store.mts";
 import type { NormalizedProduct } from "../src/server/catalog-types.mts";
 
 const directory = mkdtempSync(path.join(tmpdir(), "catalogbridge-test-"));
 const database = openCatalogDatabase(path.join(directory, "test.db"));
 after(() => { database.close(); rmSync(directory, { recursive: true, force: true }); });
 
-test("persists a queued import and normalized product", () => {
+test("persists and deletes a normalized product without deleting processing history", () => {
   const created = createImport(["https://www.jakmall.com/store/example"], { markupPercent: 20, validateImages: true, detectDuplicates: true, requireReview: true }, database);
   const job = claimNextJob(database);
   assert.ok(job);
@@ -30,4 +30,8 @@ test("persists a queued import and normalized product", () => {
   assert.deepEqual(details?.warnings, []);
   assert.equal(getImport(created.id, database)?.status, "COMPLETED");
   assert.equal(findDuplicate(product, database)?.sku, "SKU-1");
+  assert.equal(deleteProduct(listed[0].id, database), true);
+  assert.equal(getProductDetails(listed[0].id, database), null);
+  assert.equal(listProducts(database).length, 0);
+  assert.equal(getImport(created.id, database)?.jobs.length, 1);
 });

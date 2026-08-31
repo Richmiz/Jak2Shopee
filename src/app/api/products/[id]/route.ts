@@ -1,5 +1,5 @@
 import { getSession } from "@/app/actions/auth";
-import { getProductDetails, updateProduct } from "@/server/catalog-store.mts";
+import { deleteProduct, getProductDetails, updateProduct } from "@/server/catalog-store.mts";
 import { updateProductSchema } from "@/server/catalog-types.mts";
 
 export async function GET(_request: Request, { params }: RouteContext<"/api/products/[id]">) {
@@ -16,4 +16,10 @@ export async function PATCH(request: Request, { params }: RouteContext<"/api/pro
   const { id } = await params;
   const result = updateProduct(id, parsed.data);
   return result ? Response.json(result) : Response.json({ error: "Product not found." }, { status: 404 });
+}
+
+export async function DELETE(_request: Request, { params }: RouteContext<"/api/products/[id]">) {
+  if (!await getSession()) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const { id } = await params;
+  return deleteProduct(id) ? new Response(null, { status: 204 }) : Response.json({ error: "Product not found." }, { status: 404 });
 }
