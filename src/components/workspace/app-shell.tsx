@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSepar
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { StatusBadge } from "@/components/workspace/status-badge";
-import { products } from "@/lib/catalog-data";
+import type { Product } from "@/lib/catalog-data";
 import { cn } from "@/lib/utils";
 
 type NavigationItem = { label: string; href: string; icon: LucideIcon; count?: number };
@@ -22,7 +22,7 @@ const navigation: NavigationItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Import products", href: "/imports/new", icon: UploadCloud },
   { label: "Products", href: "/products", icon: Boxes },
-  { label: "Review queue", href: "/reviews", icon: ListChecks, count: 3 },
+  { label: "Review queue", href: "/reviews", icon: ListChecks },
   { label: "Processing history", href: "/jobs", icon: History },
 ];
 
@@ -70,12 +70,13 @@ function ProfileMenu({ email, collapsed = false, placement = "sidebar" }: { emai
   );
 }
 
-function Navigation({ pathname, collapsed = false, onNavigate }: { pathname: string; collapsed?: boolean; onNavigate?: () => void }) {
+function Navigation({ pathname, reviewCount, collapsed = false, onNavigate }: { pathname: string; reviewCount: number; collapsed?: boolean; onNavigate?: () => void }) {
   const { t } = useLanguage();
   return (
     <nav className="grid gap-1" aria-label={t("Workspace navigation")}>
       {navigation.map((item) => {
-        const { href, icon: Icon, count } = item;
+        const { href, icon: Icon } = item;
+        const count = href === "/reviews" ? reviewCount : item.count;
         const label = t(item.label);
         return (
         <Link key={href} href={href} onClick={onNavigate} title={collapsed ? label : undefined} aria-current={isActive(pathname, href) ? "page" : undefined} className={cn("relative flex h-11 items-center rounded-xl text-sm font-medium transition-[color,background-color,transform,box-shadow] duration-200", collapsed ? "justify-center px-0" : "gap-3 px-3", isActive(pathname, href) ? "bg-primary/12 text-primary shadow-sm ring-1 ring-primary/20" : "text-muted-foreground hover:translate-x-0.5 hover:bg-primary/[0.06] hover:text-foreground")}>
@@ -88,7 +89,7 @@ function Navigation({ pathname, collapsed = false, onNavigate }: { pathname: str
   );
 }
 
-function WorkspaceSidebar({ pathname, userEmail, collapsed = false, profilePlacement = "sidebar", onCollapsedChange, onNavigate }: { pathname: string; userEmail: string; collapsed?: boolean; profilePlacement?: ProfileMenuPlacement; onCollapsedChange?: (collapsed: boolean) => void; onNavigate?: () => void }) {
+function WorkspaceSidebar({ pathname, userEmail, reviewCount, collapsed = false, profilePlacement = "sidebar", onCollapsedChange, onNavigate }: { pathname: string; userEmail: string; reviewCount: number; collapsed?: boolean; profilePlacement?: ProfileMenuPlacement; onCollapsedChange?: (collapsed: boolean) => void; onNavigate?: () => void }) {
   const { t } = useLanguage();
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -99,7 +100,7 @@ function WorkspaceSidebar({ pathname, userEmail, collapsed = false, profilePlace
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-width:thin]">
         <p className={cn("px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground", collapsed && "sr-only")}>{t("Menu")}</p>
-        <Navigation pathname={pathname} collapsed={collapsed} onNavigate={onNavigate} />
+        <Navigation pathname={pathname} reviewCount={reviewCount} collapsed={collapsed} onNavigate={onNavigate} />
         <p className={cn("mt-6 px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground", collapsed && "sr-only")}>{t("General")}</p>
         <Link href="/settings" onClick={onNavigate} title={collapsed ? t("Settings") : undefined} className={cn("mt-1 flex h-11 items-center rounded-xl text-sm font-medium transition-all duration-200", collapsed ? "justify-center px-0" : "gap-3 px-3", isActive(pathname, "/settings") ? "bg-primary/12 text-primary shadow-sm ring-1 ring-primary/20" : "text-muted-foreground hover:bg-primary/[0.06] hover:text-foreground")}><Settings2 className="size-4" /><span className={collapsed ? "sr-only" : undefined}>{t("Settings")}</span></Link>
       </div>
@@ -108,7 +109,7 @@ function WorkspaceSidebar({ pathname, userEmail, collapsed = false, profilePlace
   );
 }
 
-function GlobalSearch() {
+function GlobalSearch({ products }: { products: Product[] }) {
   const { t } = useLanguage();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
@@ -132,25 +133,26 @@ function GlobalSearch() {
   );
 }
 
-export function AppShell({ children, userEmail }: { children: ReactNode; userEmail: string }) {
+export function AppShell({ children, userEmail, products }: { children: ReactNode; userEmail: string; products: Product[] }) {
   const pathname = usePathname();
   const { language, setLanguage, t } = useLanguage();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const reviewCount = products.filter((product) => product.status === "NEEDS_REVIEW").length;
 
   return (
     <div className="min-h-screen bg-white">
       <div className="grid min-h-screen w-full grid-cols-1 gap-4 bg-white p-3 transition-[grid-template-columns] duration-300 ease-out lg:grid-cols-[auto_minmax(0,1fr)] lg:p-4">
-        <aside className={cn("sticky top-4 hidden h-[calc(100vh-2rem)] rounded-[28px] border border-black/[0.055] bg-[#fbfbfc] transition-[width,padding] duration-300 ease-out lg:block", sidebarCollapsed ? "w-[4.5rem] p-3" : "w-[clamp(13rem,18vw,16rem)] p-4")}><WorkspaceSidebar pathname={pathname} userEmail={userEmail} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} /></aside>
+        <aside className={cn("sticky top-4 hidden h-[calc(100vh-2rem)] rounded-[28px] border border-black/[0.055] bg-[#fbfbfc] transition-[width,padding] duration-300 ease-out lg:block", sidebarCollapsed ? "w-[4.5rem] p-3" : "w-[clamp(13rem,18vw,16rem)] p-4")}><WorkspaceSidebar pathname={pathname} userEmail={userEmail} reviewCount={reviewCount} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} /></aside>
 
         <section className="min-w-0 rounded-[26px] bg-[#f4f5f8] p-3 md:p-4">
           <header className="relative z-30 flex h-[68px] items-center gap-3 rounded-2xl border border-black/[0.055] bg-white/85 px-3 shadow-[0_8px_28px_oklch(0_0_0/0.035)] backdrop-blur-xl sm:px-4">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild><Button variant="outline" size="icon" className="lg:hidden" aria-label={t("Open navigation")}><Menu className="size-5" /></Button></SheetTrigger>
-              <SheetContent side="left" className="w-[min(88vw,22rem)] border-0 bg-[#fbfbfc] p-4"><SheetHeader className="sr-only"><SheetTitle>{t("CatalogBridge navigation")}</SheetTitle><SheetDescription>{t("Navigate the product automation workspace.")}</SheetDescription></SheetHeader><WorkspaceSidebar pathname={pathname} userEmail={userEmail} profilePlacement="mobile" onNavigate={() => setMobileOpen(false)} /></SheetContent>
+              <SheetContent side="left" className="w-[min(88vw,22rem)] border-0 bg-[#fbfbfc] p-4"><SheetHeader className="sr-only"><SheetTitle>{t("CatalogBridge navigation")}</SheetTitle><SheetDescription>{t("Navigate the product automation workspace.")}</SheetDescription></SheetHeader><WorkspaceSidebar pathname={pathname} userEmail={userEmail} reviewCount={reviewCount} profilePlacement="mobile" onNavigate={() => setMobileOpen(false)} /></SheetContent>
             </Sheet>
             <div className="lg:hidden"><Brand /></div>
-            <GlobalSearch />
+            <GlobalSearch products={products} />
             <div className="flex-1" />
             <div className="flex rounded-xl border bg-muted/60 p-1" role="group" aria-label="Language">
               <Button type="button" variant="ghost" size="sm" aria-pressed={language === "en"} onClick={() => setLanguage("en")} className={cn("h-7 rounded-lg px-2.5 text-[10px] font-bold", language === "en" ? "bg-white text-foreground shadow-sm hover:bg-white" : "text-muted-foreground hover:text-foreground")}>ENG</Button>

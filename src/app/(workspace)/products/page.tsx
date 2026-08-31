@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { ProductsView } from "@/components/products/products-view";
-import { products } from "@/lib/catalog-data";
+import { listProducts } from "@/server/catalog-store.mts";
 
 export const metadata: Metadata = { title: "Catalog" };
 
@@ -9,7 +9,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
 
   return (
     <ProductsView
-      initialProducts={products}
+      initialProducts={listProducts()}
       initialSelectedId={typeof selected === "string" ? selected : undefined}
     />
   );

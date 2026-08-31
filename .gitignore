@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local CatalogBridge runtime
+/data/*.db
+/data/*.db-*
+/data/browser-profile/
+/data/evidence/

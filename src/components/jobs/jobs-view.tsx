@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, Camera, CheckCircle2, CircleDashed, Copy, Info, RefreshCcw } from "lucide-react";
 import { useLanguage } from "@/components/i18n/language-provider";
 import { Badge } from "@/components/ui/badge";
@@ -22,13 +23,14 @@ const levelIcons = { INFO: Info, SUCCESS: CheckCircle2, WARNING: AlertTriangle, 
 
 export function JobsView({ initialJobs }: { initialJobs: Job[] }) {
   const { t } = useLanguage();
+  const router = useRouter();
   const [selectedId, setSelectedId] = useState(initialJobs[0]?.id ?? "");
   const [notice, setNotice] = useState("");
   const selected = initialJobs.find((job) => job.id === selectedId) ?? initialJobs[0];
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Execution evidence" title="Processing jobs" description="Inspect attempts, stage transitions, warnings, and failure evidence without leaving the job context." actions={<Button variant="outline" onClick={() => setNotice(t("Job list refreshed."))}><RefreshCcw className="size-4" />{t("Refresh")}</Button>} />
+      <PageHeader eyebrow="Execution evidence" title="Processing jobs" description="Inspect attempts, stage transitions, warnings, and failure evidence without leaving the job context." actions={<Button variant="outline" onClick={() => { router.refresh(); setNotice(t("Job list refreshed.")); }}><RefreshCcw className="size-4" />{t("Refresh")}</Button>} />
       {notice ? <div role="status" className="rounded-lg border border-primary/20 bg-primary/[0.04] px-4 py-3 text-sm">{notice}</div> : null}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))] items-start gap-4">
         <Card>
@@ -41,6 +43,7 @@ export function JobsView({ initialJobs }: { initialJobs: Job[] }) {
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground"><span>{t(job.stage)}</span><span>{t(job.startedAt).replace(t("Today, "), "")}</span></div>
               </Button>
             ))}
+            {!initialJobs.length ? <div className="rounded-xl border border-dashed p-8 text-center"><p className="font-medium">{t("No processing jobs yet")}</p><p className="mt-1 text-sm text-muted-foreground">{t("Queued imports and their evidence will appear here.")}</p></div> : null}
           </CardContent>
         </Card>
 
@@ -60,7 +63,7 @@ export function JobsView({ initialJobs }: { initialJobs: Job[] }) {
             </CardContent>
           </Card>
 
-          {selected.status === "FAILED" ? <Card className="border-rose-200 shadow-none"><CardHeader><CardTitle className="flex items-center gap-2 text-rose-800"><Camera className="size-4" />{t("Failure evidence")}</CardTitle><CardDescription>{t("Evidence from the final failed attempt")}</CardDescription></CardHeader><CardContent><div className="grid min-h-44 place-items-center rounded-lg border border-dashed border-rose-200 bg-rose-50/60 p-4 text-center"><div><AlertTriangle className="mx-auto size-6 text-rose-600" /><p className="mt-2 text-sm font-medium text-rose-900">{t("Image upload timeout")}</p><p className="mt-1 text-xs text-rose-800/70">{t("No screenshot was captured for this attempt.")}</p></div></div><Button className="mt-4" onClick={() => setNotice(t("Retry queued."))}><RefreshCcw className="size-4" />{t("Retry failed stage")}</Button></CardContent></Card> : null}
+          {selected.status === "FAILED" ? <Card className="border-rose-200 shadow-none"><CardHeader><CardTitle className="flex items-center gap-2 text-rose-800"><Camera className="size-4" />{t("Failure evidence")}</CardTitle><CardDescription>{t("Evidence from the final failed attempt")}</CardDescription></CardHeader><CardContent><div className="grid min-h-44 place-items-center rounded-lg border border-dashed border-rose-200 bg-rose-50/60 p-4 text-center"><div><AlertTriangle className="mx-auto size-6 text-rose-600" /><p className="mt-2 text-sm font-medium text-rose-900">{t(selected.errorMessage || "Extraction failed")}</p><p className="mt-1 text-xs text-rose-800/70">{t(selected.evidencePath ? "A local screenshot was recorded with this attempt." : "No screenshot was available for this attempt.")}</p></div></div><Button className="mt-4" onClick={async () => { const response = await fetch(`/api/jobs/${encodeURIComponent(selected.id)}/retry`, { method: "POST" }); setNotice(t(response.ok ? "Retry queued." : "The retry could not be queued.")); if (response.ok) router.refresh(); }}><RefreshCcw className="size-4" />{t("Retry failed stage")}</Button></CardContent></Card> : null}
 
           {selected.status === "PROCESSING" ? <div className="flex items-center gap-3 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900"><CircleDashed className="size-4 animate-spin" />{t("Processing is in progress.")}</div> : null}
         </div> : null}
