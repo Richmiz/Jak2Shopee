@@ -9,7 +9,7 @@ import { logoutAction } from "@/app/actions/auth";
 import { useLanguage } from "@/components/i18n/language-provider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { StatusBadge } from "@/components/workspace/status-badge";
@@ -137,10 +137,52 @@ function GlobalSearch({ products, jobs }: { products: Product[]; jobs: Job[] }) 
 
 function NotificationsMenu({ products, jobs }: { products: Product[]; jobs: Job[] }) {
   const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
   const failedJobs = jobs.filter((job) => job.runStatus === "FAILED").slice(0, 4);
   const reviewProducts = products.filter((product) => product.status === "NEEDS_REVIEW").slice(0, Math.max(0, 5 - failedJobs.length));
   const count = failedJobs.length + reviewProducts.length;
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="icon" className="relative hidden sm:inline-flex" aria-label={t("Notifications")}><Bell className="size-4" />{count ? <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-4 text-white">{count}</span> : null}</Button></DropdownMenuTrigger><DropdownMenuContent align="end" sideOffset={10} collisionPadding={12} className="w-[min(22rem,calc(100vw-1.5rem))] rounded-xl p-2 shadow-xl"><DropdownMenuLabel>{t("Notifications")}</DropdownMenuLabel><DropdownMenuSeparator />{count ? <div className="space-y-1">{failedJobs.map((job) => <Link key={job.id} href={`/jobs?job=${job.id}`} className="flex gap-3 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-muted"><span className="mt-0.5 size-2 shrink-0 rounded-full bg-rose-500" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{job.productName}</span><span className="mt-0.5 block text-xs text-muted-foreground">{t("Extraction failed")} · {job.id}</span></span></Link>)}{reviewProducts.map((product) => <Link key={product.id} href={`/products?selected=${product.id}`} className="flex gap-3 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-muted"><span className="mt-0.5 size-2 shrink-0 rounded-full bg-amber-500" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{product.name}</span><span className="mt-0.5 block text-xs text-muted-foreground">{t("Needs review")}</span></span></Link>)}</div> : <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t("No new notifications")}</p>}</DropdownMenuContent></DropdownMenu>;
+  const closeNotifications = () => setOpen(false);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="icon" className="relative hidden sm:inline-flex" aria-label={t("Notifications")} aria-expanded={open}>
+          <Bell className="size-4" />
+          {count ? <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-4 text-white">{count}</span> : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={10} collisionPadding={12} className="w-[min(22rem,calc(100vw-1.5rem))] rounded-xl p-2 shadow-xl">
+        <DropdownMenuLabel>{t("Notifications")}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {count ? (
+          <div className="max-h-[min(26rem,calc(100vh-9rem))] space-y-1 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin]">
+            {failedJobs.map((job) => (
+              <DropdownMenuItem key={job.id} asChild className="p-0 focus:bg-muted" onSelect={closeNotifications}>
+                <Link href={`/jobs?job=${job.id}`} onClick={closeNotifications} className="flex w-full gap-3 rounded-lg px-2.5 py-2.5">
+                  <span className="mt-0.5 size-2 shrink-0 rounded-full bg-rose-500" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">{job.productName}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{t("Extraction failed")} · {job.id}</span>
+                  </span>
+                </Link>
+              </DropdownMenuItem>
+            ))}
+            {reviewProducts.map((product) => (
+              <DropdownMenuItem key={product.id} asChild className="p-0 focus:bg-muted" onSelect={closeNotifications}>
+                <Link href={`/products?selected=${product.id}`} onClick={closeNotifications} className="flex w-full gap-3 rounded-lg px-2.5 py-2.5">
+                  <span className="mt-0.5 size-2 shrink-0 rounded-full bg-amber-500" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">{product.name}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{t("Needs review")}</span>
+                  </span>
+                </Link>
+              </DropdownMenuItem>
+            ))}
+          </div>
+        ) : <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t("No new notifications")}</p>}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 export function AppShell({ children, userEmail, products, jobs }: { children: ReactNode; userEmail: string; products: Product[]; jobs: Job[] }) {
