@@ -14,6 +14,7 @@ const statusStyles: Record<ProductStatus, string> = {
   READY: "border-sky-200 bg-sky-50 text-sky-700",
   BLOCKED: "border-red-200 bg-red-50 text-red-700",
   DUPLICATE: "border-orange-200 bg-orange-50 text-orange-700",
+  CANCELLED: "border-slate-200 bg-slate-100 text-slate-600",
 };
 
 export function StatusBadge({ status, className }: { status: ProductStatus; className?: string }) {

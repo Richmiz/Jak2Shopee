@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSepar
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { StatusBadge } from "@/components/workspace/status-badge";
-import type { Product } from "@/lib/catalog-data";
+import type { Job, Product } from "@/lib/catalog-data";
 import { cn } from "@/lib/utils";
 
 type NavigationItem = { label: string; href: string; icon: LucideIcon; count?: number };
@@ -109,11 +109,12 @@ function WorkspaceSidebar({ pathname, userEmail, reviewCount, collapsed = false,
   );
 }
 
-function GlobalSearch({ products }: { products: Product[] }) {
+function GlobalSearch({ products, jobs }: { products: Product[]; jobs: Job[] }) {
   const { t } = useLanguage();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const productMatches = deferredQuery ? products.filter((product) => product.name.toLowerCase().includes(deferredQuery) || product.sku.toLowerCase().includes(deferredQuery)).slice(0, 4) : [];
+  const jobMatches = deferredQuery ? jobs.filter((job) => job.id.toLowerCase().includes(deferredQuery) || job.productName.toLowerCase().includes(deferredQuery) || job.sourceUrl.toLowerCase().includes(deferredQuery)).slice(0, 4) : [];
   const settingsItem: NavigationItem = { label: "Settings", href: "/settings", icon: Settings2 };
   const pageMatches = deferredQuery ? [...navigation, settingsItem].filter((item) => `${item.label} ${t(item.label)}`.toLowerCase().includes(deferredQuery)).slice(0, 3) : [];
 
@@ -123,17 +124,26 @@ function GlobalSearch({ products }: { products: Product[] }) {
       <Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-11 rounded-xl border-border/80 bg-white pl-10 !shadow-none focus-visible:shadow-sm" placeholder={t("Search products, jobs, SKUs...")} aria-label={t("Search workspace")} />
       {deferredQuery ? (
         <div className="absolute inset-x-0 top-[calc(100%+8px)] z-50 overflow-hidden rounded-2xl border bg-popover p-2 shadow-2xl">
-          {productMatches.length || pageMatches.length ? <div className="space-y-1">
+          {productMatches.length || jobMatches.length || pageMatches.length ? <div className="space-y-1">
             {pageMatches.map((item) => { const { href, icon: Icon } = item; return <Link key={href} href={href} onClick={() => setQuery("")} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-muted"><span className="grid size-8 place-items-center rounded-lg bg-muted"><Icon className="size-4" /></span>{t(item.label)}</Link>; })}
             {productMatches.map((product) => <Link key={product.id} href={`/products?selected=${product.id}`} onClick={() => setQuery("")} className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted"><span className={cn("grid size-8 place-items-center rounded-lg bg-gradient-to-br", product.accent)}><Boxes className="size-3.5 text-primary" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{product.name}</span><span className="block font-mono text-[10px] text-muted-foreground">{product.sku}</span></span><StatusBadge status={product.status} /></Link>)}
-          </div> : <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t("No matching products or pages.")}</p>}
+            {jobMatches.map((job) => <Link key={job.id} href={`/jobs?job=${job.id}`} onClick={() => setQuery("")} className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted"><span className="grid size-8 place-items-center rounded-lg bg-violet-50 text-violet-700"><History className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{job.productName}</span><span className="block font-mono text-[10px] text-muted-foreground">{job.id}</span></span><StatusBadge status={job.status} /></Link>)}
+          </div> : <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t("No matching products, jobs, or pages.")}</p>}
         </div>
       ) : null}
     </div>
   );
 }
 
-export function AppShell({ children, userEmail, products }: { children: ReactNode; userEmail: string; products: Product[] }) {
+function NotificationsMenu({ products, jobs }: { products: Product[]; jobs: Job[] }) {
+  const { t } = useLanguage();
+  const failedJobs = jobs.filter((job) => job.runStatus === "FAILED").slice(0, 4);
+  const reviewProducts = products.filter((product) => product.status === "NEEDS_REVIEW").slice(0, Math.max(0, 5 - failedJobs.length));
+  const count = failedJobs.length + reviewProducts.length;
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="icon" className="relative hidden sm:inline-flex" aria-label={t("Notifications")}><Bell className="size-4" />{count ? <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-4 text-white">{count}</span> : null}</Button></DropdownMenuTrigger><DropdownMenuContent align="end" sideOffset={10} collisionPadding={12} className="w-[min(22rem,calc(100vw-1.5rem))] rounded-xl p-2 shadow-xl"><DropdownMenuLabel>{t("Notifications")}</DropdownMenuLabel><DropdownMenuSeparator />{count ? <div className="space-y-1">{failedJobs.map((job) => <Link key={job.id} href={`/jobs?job=${job.id}`} className="flex gap-3 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-muted"><span className="mt-0.5 size-2 shrink-0 rounded-full bg-rose-500" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{job.productName}</span><span className="mt-0.5 block text-xs text-muted-foreground">{t("Extraction failed")} · {job.id}</span></span></Link>)}{reviewProducts.map((product) => <Link key={product.id} href={`/products?selected=${product.id}`} className="flex gap-3 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-muted"><span className="mt-0.5 size-2 shrink-0 rounded-full bg-amber-500" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{product.name}</span><span className="mt-0.5 block text-xs text-muted-foreground">{t("Needs review")}</span></span></Link>)}</div> : <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t("No new notifications")}</p>}</DropdownMenuContent></DropdownMenu>;
+}
+
+export function AppShell({ children, userEmail, products, jobs }: { children: ReactNode; userEmail: string; products: Product[]; jobs: Job[] }) {
   const pathname = usePathname();
   const { language, setLanguage, t } = useLanguage();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -152,13 +162,13 @@ export function AppShell({ children, userEmail, products }: { children: ReactNod
               <SheetContent side="left" className="w-[min(88vw,22rem)] border-0 bg-[#fbfbfc] p-4"><SheetHeader className="sr-only"><SheetTitle>{t("CatalogBridge navigation")}</SheetTitle><SheetDescription>{t("Navigate the product automation workspace.")}</SheetDescription></SheetHeader><WorkspaceSidebar pathname={pathname} userEmail={userEmail} reviewCount={reviewCount} profilePlacement="mobile" onNavigate={() => setMobileOpen(false)} /></SheetContent>
             </Sheet>
             <div className="lg:hidden"><Brand /></div>
-            <GlobalSearch products={products} />
+            <GlobalSearch products={products} jobs={jobs} />
             <div className="flex-1" />
             <div className="flex rounded-xl border bg-muted/60 p-1" role="group" aria-label="Language">
               <Button type="button" variant="ghost" size="sm" aria-pressed={language === "en"} onClick={() => setLanguage("en")} className={cn("h-7 rounded-lg px-2.5 text-[10px] font-bold", language === "en" ? "bg-white text-foreground shadow-sm hover:bg-white" : "text-muted-foreground hover:text-foreground")}>ENG</Button>
               <Button type="button" variant="ghost" size="sm" aria-pressed={language === "id"} onClick={() => setLanguage("id")} className={cn("h-7 rounded-lg px-2.5 text-[10px] font-bold", language === "id" ? "bg-white text-foreground shadow-sm hover:bg-white" : "text-muted-foreground hover:text-foreground")}>IND</Button>
             </div>
-            <Button variant="outline" size="icon" className="hidden sm:inline-flex" aria-label={t("Notifications")} title={t("No new notifications")}><Bell className="size-4" /></Button>
+            <NotificationsMenu products={products} jobs={jobs} />
             <div className="hidden sm:block"><ProfileMenu email={userEmail} collapsed placement="header" /></div>
           </header>
 

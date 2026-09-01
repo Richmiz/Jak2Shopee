@@ -3,11 +3,14 @@
 import { createHmac, pbkdf2Sync, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { getWorkspaceSettings } from "@/server/catalog-store.mts";
 
 export type LoginState = { error?: string };
 
 const sessionCookie = "catalogbridge_session";
-const sessionMaxAgeSeconds = 60 * 60 * 8;
+function sessionMaxAgeSeconds() {
+  return getWorkspaceSettings().sessionTimeoutHours * 60 * 60;
+}
 
 function authSecret() {
   const configured = process.env.AUTH_SECRET;
@@ -20,7 +23,7 @@ function sign(value: string, secret: string) {
 }
 
 function createSessionToken(email: string, secret: string) {
-  const payload = Buffer.from(JSON.stringify({ email, expiresAt: Date.now() + sessionMaxAgeSeconds * 1000 })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ email, expiresAt: Date.now() + sessionMaxAgeSeconds() * 1000 })).toString("base64url");
   return `${payload}.${sign(payload, secret)}`;
 }
 
@@ -70,7 +73,7 @@ export async function loginAction(_previousState: LoginState, formData: FormData
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: sessionMaxAgeSeconds,
+    maxAge: sessionMaxAgeSeconds(),
   });
   redirect("/");
 }

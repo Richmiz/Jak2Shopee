@@ -1,7 +1,9 @@
 import * as cheerio from "cheerio";
 import { extractListedRupiahPrice } from "../../lib/product-pricing.mts";
+import { calculateSellingPrice } from "../../lib/pricing-policy.mts";
 import type { ImportOptions, NormalizedProduct, ProductVariant } from "../catalog-types.mts";
-import { CatalogError } from "../catalog-types.mts";
+import { CatalogError, importOptionsSchema } from "../catalog-types.mts";
+import { extractExactStock, extractStockFromText, normalizeProductTitle, normalizeSellerSku } from "./normalization.mts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -103,14 +105,15 @@ function variantsFromOffers(offers: JsonRecord[], fallbackSku: string): ProductV
   return offers.map((offer, index) => ({
     name: "Variant",
     option: firstText(offer.name, offer.sku, `Option ${index + 1}`),
-    sku: firstText(offer.sku, `${fallbackSku}-${index + 1}`),
+    sku: normalizeSellerSku(firstText(offer.sku, `${fallbackSku}-${index + 1}`)),
     price: parseNumber(offer.price) || null,
     stock: /instock/i.test(text(offer.availability)) ? 1 : null,
     attributes: {},
   }));
 }
 
-export function parseJakMallProduct(html: string, sourceUrl: string, options: ImportOptions, hints: RenderedProductHints = {}): NormalizedProduct {
+export function parseJakMallProduct(html: string, sourceUrl: string, options: Partial<ImportOptions>, hints: RenderedProductHints = {}): NormalizedProduct {
+  const normalizedOptions = importOptionsSchema.parse(options);
   const $ = cheerio.load(html);
   const records: JsonRecord[] = [];
   $('script[type="application/ld+json"]').each((_index, element) => {
@@ -120,19 +123,28 @@ export function parseJakMallProduct(html: string, sourceUrl: string, options: Im
   const offers = offerRecords(product.offers);
   const primaryOffer = offers[0] ?? {};
   const canonicalUrl = firstText($("link[rel='canonical']").attr("href"), product.url, sourceUrl).split("#")[0].split("?")[0];
-  const title = firstText(hints.title, product.name, $('meta[property="og:title"]').attr("content"), $("h1").first().text());
+  const title = normalizeProductTitle(firstText(hints.title, product.name, $('meta[property="og:title"]').attr("content"), $("h1").first().text()));
   const metadataDescriptions = [text(product.description), text($('meta[property="og:description"]').attr("content")), text($('meta[name="description"]').attr("content"))].filter(Boolean);
   const metadataDescription = metadataDescriptions[0] ?? "";
   const description = firstText(hints.description, metadataDescription);
   const metadataPrice = metadataDescriptions.map(extractListedRupiahPrice).find((value): value is number => value !== null);
   const structuredPrice = parseNumber(primaryOffer.price ?? asRecord(product.offers)?.lowPrice ?? $('meta[property="product:price:amount"]').attr("content") ?? $('[itemprop="price"]').first().attr("content") ?? $('[itemprop="price"]').first().text());
   const sourcePrice = Math.round(metadataPrice || hints.sourcePrice || structuredPrice || 0);
-  const sku = firstText(hints.sku, product.sku, primaryOffer.sku, $("[data-sku]").first().attr("data-sku"));
-  const sourceProductId = firstText(product.productID, product.mpn, sku, new URL(canonicalUrl).pathname.split("/").filter(Boolean).at(-1));
+  const sku = normalizeSellerSku(firstText(hints.sku, product.sku, primaryOffer.sku, $("[data-sku]").first().attr("data-sku")));
+  const structuredProductId = firstText(product.productID, product.mpn, sku);
+  const sourceProductId = structuredProductId ? normalizeSellerSku(structuredProductId) : firstText(new URL(canonicalUrl).pathname.split("/").filter(Boolean).at(-1));
   const attributes = extractAttributes($, product);
   const body = $("body").text().replace(/\s+/g, " ");
-  const stockText = firstText(primaryOffer.inventoryLevel, primaryOffer.availability, attributes.Stock, attributes.Stok);
-  const stock = parseNumber(stockText) || (/instock/i.test(stockText) ? 1 : 0) || hints.stock || 0;
+  const stockAttribute = Object.entries(attributes).find(([name]) => /^(?:stok|stock|inventory|quantity)$/i.test(name.trim()))?.[1];
+  const exactStock = [
+    primaryOffer.inventoryLevel,
+    primaryOffer.inventoryQuantity,
+    product.inventoryLevel,
+    hints.stock,
+    stockAttribute,
+  ].map(extractExactStock).find((value): value is number => value !== undefined) ?? extractStockFromText(body);
+  const availabilityText = firstText(primaryOffer.availability, asRecord(product.offers)?.availability);
+  const stock = exactStock ?? (/instock/i.test(availabilityText) ? 1 : 0);
   const weightGrams = findWeight(attributes, body) || hints.weightGrams || 0;
   const category = firstText(product.category, breadcrumbCategory(records));
   const metaImages = $('meta[property="og:image"]').toArray().map((element) => $(element).attr("content") ?? "");
@@ -142,7 +154,7 @@ export function parseJakMallProduct(html: string, sourceUrl: string, options: Im
   const warnings: string[] = [];
   if (!description) warnings.push("Description was not found.");
   if (!sku) warnings.push("Seller SKU was not found.");
-  if (!stock) warnings.push("Stock quantity needs confirmation.");
+  if (exactStock === undefined) warnings.push("Exact stock quantity needs confirmation.");
   if (!weightGrams) warnings.push("Shipping weight needs confirmation.");
   if (!category) warnings.push("Destination category needs confirmation.");
   if (!imageUrls.length) warnings.push("No product images were found.");
@@ -155,7 +167,7 @@ export function parseJakMallProduct(html: string, sourceUrl: string, options: Im
     title,
     description,
     sourcePrice,
-    sellingPrice: Math.round(sourcePrice * (1 + options.markupPercent / 100)),
+    sellingPrice: calculateSellingPrice(sourcePrice, normalizedOptions),
     currency: "IDR",
     sku,
     stock,

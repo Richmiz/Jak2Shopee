@@ -81,7 +81,7 @@ function DetailsLoading({ summary }: { summary: Product }) {
   return <div className="grid gap-6 p-5 lg:grid-cols-[minmax(16rem,0.9fr)_minmax(0,1.35fr)] sm:p-6"><ProductAvatar accent={summary.accent} className="aspect-[4/3] size-full rounded-2xl" /><div className="space-y-4"><div className="h-6 w-28 animate-pulse rounded-full bg-muted" /><div className="grid grid-cols-2 gap-3">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-20 animate-pulse rounded-xl bg-muted" />)}</div><div className="h-32 animate-pulse rounded-xl bg-muted" /></div></div>;
 }
 
-function ProductDetailsDialog({ summary, onClose, onUpdated, onRequestDelete }: { summary: Product; onClose: () => void; onUpdated: () => void; onRequestDelete: (product: Product) => void }) {
+function ProductDetailsDialog({ summary, onClose, onUpdated, onRequestDelete, onRequestReextract }: { summary: Product; onClose: () => void; onUpdated: () => void; onRequestDelete: (product: Product) => void; onRequestReextract: (product: Product) => void }) {
   const { language, t } = useLanguage();
   const [requestVersion, setRequestVersion] = useState(0);
   const [detailState, setDetailState] = useState<DetailState>({ status: "loading" });
@@ -153,6 +153,7 @@ function ProductDetailsDialog({ summary, onClose, onUpdated, onRequestDelete }: 
           <div className="flex w-fit shrink-0 flex-wrap items-center gap-2">
             {(product?.status ?? summary.status) === "NEEDS_REVIEW" && !reviewing ? <Button size="sm" onClick={beginReview}><Pencil className="size-3.5" />{t("Review product")}</Button> : null}
             {reviewing ? <Button size="sm" variant="outline" onClick={() => { setReviewing(false); setDraft(null); setReviewError(""); }}>{t("Cancel review")}</Button> : null}
+            {!reviewing ? <Button size="sm" variant="outline" onClick={() => onRequestReextract(summary)}><RefreshCw className="size-3.5" />{t("Refresh data")}</Button> : null}
             <StatusBadge status={product?.status ?? summary.status} className="w-fit shrink-0" />
             <Button size="icon-sm" variant="destructive" aria-label={t("Delete product")} onClick={() => onRequestDelete(summary)}><Trash2 className="size-4" /></Button>
           </div>
@@ -177,6 +178,7 @@ function ProductDetailsDialog({ summary, onClose, onUpdated, onRequestDelete }: 
               </div>
               <ReviewTextField id="review-category" label="Destination category" value={draft.category} onChange={(category) => setDraft({ ...draft, category })} />
               <div className="space-y-2"><Label htmlFor="review-description">{t("Description")}</Label><Textarea id="review-description" className="min-h-44" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.currentTarget.value })} /></div>
+              {product.needsRefresh ? <section className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-violet-900"><div className="flex gap-2"><RefreshCw className="mt-0.5 size-4 shrink-0" /><div><h3 className="text-sm font-semibold">{t("Source refresh recommended")}</h3><p className="mt-1 text-xs leading-5">{t("This record predates the current SKU, stock, title, and description extraction rules.")}</p></div></div></section> : null}
               {product.warnings.length ? <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900"><div className="flex gap-2"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><h3 className="text-sm font-semibold">{t("Review warnings")}</h3><ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs leading-5">{product.warnings.map((warning) => <li key={warning}>{t(warning)}</li>)}</ul></div></div></section> : null}
             </div>
           </div>
@@ -217,7 +219,9 @@ export function ProductsView({ initialProducts, initialSelectedId }: { initialPr
   );
   const [notice, setNotice] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<Product | null>(null);
+  const [reextractCandidate, setReextractCandidate] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [reextracting, setReextracting] = useState(false);
   const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set());
 
   const normalizedQuery = deferredQuery.trim().toLowerCase();
@@ -227,6 +231,7 @@ export function ProductsView({ initialProducts, initialSelectedId }: { initialPr
     const matchesQuery = !normalizedQuery || product.name.toLowerCase().includes(normalizedQuery) || product.sku.toLowerCase().includes(normalizedQuery);
     return matchesStatus && matchesQuery;
   });
+  const exportHref = `/api/products/export?query=${encodeURIComponent(deferredQuery.trim())}&status=${encodeURIComponent(status)}`;
   const confirmDelete = async () => {
     if (!deleteCandidate) return;
     setDeleting(true);
@@ -249,6 +254,23 @@ export function ProductsView({ initialProducts, initialSelectedId }: { initialPr
       setDeleting(false);
     }
   };
+  const confirmReextract = async () => {
+    if (!reextractCandidate) return;
+    setReextracting(true);
+    try {
+      const response = await fetch(`/api/products/${encodeURIComponent(reextractCandidate.id)}/reextract`, { method: "POST" });
+      const payload = await response.json() as { jobId?: string; error?: string };
+      if (!response.ok || !payload.jobId) throw new Error(payload.error || "The product refresh could not be queued.");
+      setSelected(null);
+      setReextractCandidate(null);
+      router.push(`/jobs?job=${encodeURIComponent(payload.jobId)}`);
+    } catch (error) {
+      setNotice(t(error instanceof Error ? error.message : "The product refresh could not be queued."));
+      setReextractCandidate(null);
+    } finally {
+      setReextracting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -259,26 +281,26 @@ export function ProductsView({ initialProducts, initialSelectedId }: { initialPr
       <Card>
         <CardContent className="p-4 sm:p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="relative min-w-0 flex-[1_1_18rem]"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input aria-label={t("Search products")} className="pl-9" placeholder={t("Search product or SKU")} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+            <div className="relative min-w-0 lg:flex-[1_1_18rem]"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input aria-label={t("Search products")} className="pl-9" placeholder={t("Search product or SKU")} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
             <Select value={status} onValueChange={(value) => setStatus(value as "ALL" | ProductStatus)}><SelectTrigger className="w-full lg:w-auto lg:min-w-48" aria-label={t("Filter by status")}><SelectValue /></SelectTrigger><SelectContent>{statuses.map((item) => <SelectItem key={item} value={item}>{item === "ALL" ? t("All statuses") : t(formatStatus(item))}</SelectItem>)}</SelectContent></Select>
-            <div className="lg:ml-auto"><Button variant="outline" onClick={() => setNotice(t("CSV export is not available yet."))}><Download className="size-4" />{t("Export CSV")}</Button></div>
+            <div className="lg:ml-auto"><Button asChild variant="outline"><a href={exportHref} download><Download className="size-4" />{t("Export CSV")}</a></Button></div>
           </div>
         </CardContent>
       </Card>
 
       <Card className="adaptive-records overflow-hidden">
         <div className="adaptive-records__compact divide-y">
-          {filtered.length ? filtered.map((product) => <div key={product.id} className="flex min-w-0 items-center transition-colors hover:bg-muted/45"><button type="button" onClick={() => setSelected(product)} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"><ProductAvatar accent={product.accent} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{product.name}</span><span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">{product.sku} · {formatMoney(product.sellingPrice)}</span></span><StatusBadge status={product.status} className="max-w-[8.5rem] shrink-0" /></button><DropdownMenu><DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" className="mr-3 shrink-0" aria-label={`${t("Actions")} · ${product.name}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => setSelected(product)}>{t("View details")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteCandidate(product)}><Trash2 className="size-4" />{t("Delete product")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>) : <div className="px-4 py-12 text-center"><p className="font-medium">{t("No products found")}</p><p className="mt-1 text-sm text-muted-foreground">{t("Try another search term or status.")}</p></div>}
+          {filtered.length ? filtered.map((product) => <div key={product.id} className="flex min-w-0 items-center transition-colors hover:bg-muted/45"><button type="button" onClick={() => setSelected(product)} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"><ProductAvatar accent={product.accent} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium" title={product.name}>{product.name}</span><span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">{product.sku} · {formatMoney(product.sellingPrice)}</span></span><StatusBadge status={product.status} className="max-w-[8.5rem] shrink-0" /></button><DropdownMenu><DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" className="mr-3 shrink-0" aria-label={`${t("Actions")} · ${product.name}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => setSelected(product)}>{t("View details")}</DropdownMenuItem><DropdownMenuItem onClick={() => setReextractCandidate(product)}><RefreshCw className="size-4" />{t("Refresh from JakMall")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteCandidate(product)}><Trash2 className="size-4" />{t("Delete product")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>) : <div className="px-4 py-12 text-center"><p className="font-medium">{t("No products found")}</p><p className="mt-1 text-sm text-muted-foreground">{t("Try another search term or status.")}</p></div>}
         </div>
         <div className="adaptive-records__table">
           <Table className="table-fixed">
-            <TableHeader><TableRow className="hover:bg-transparent"><TableHead className="w-[32%]">{t("Product")}</TableHead><TableHead className="priority-low">{t("Source price")}</TableHead><TableHead>{t("Selling price")}</TableHead><TableHead className="priority-medium">{t("Stock")}</TableHead><TableHead>{t("Status")}</TableHead><TableHead className="priority-low">{t("Updated")}</TableHead><TableHead className="w-12"><span className="sr-only">{t("Actions")}</span></TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow className="hover:bg-transparent"><TableHead className="w-[34%]">{t("Product")}</TableHead><TableHead className="priority-low w-[14%] whitespace-nowrap">{t("Source price")}</TableHead><TableHead className="w-[14%] whitespace-nowrap">{t("Selling price")}</TableHead><TableHead className="priority-medium w-[7%]">{t("Stock")}</TableHead><TableHead className="w-[14%]">{t("Status")}</TableHead><TableHead className="priority-low w-[12%]">{t("Updated")}</TableHead><TableHead className="w-12"><span className="sr-only">{t("Actions")}</span></TableHead></TableRow></TableHeader>
             <TableBody>
               {filtered.length ? filtered.map((product) => (
                 <TableRow key={product.id} className="cursor-pointer transition-colors duration-200" tabIndex={0} onClick={() => setSelected(product)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(product); } }}>
-                  <TableCell><div className="flex items-center gap-3"><ProductAvatar accent={product.accent} /><div><p className="font-medium">{product.name}</p><p className="mt-0.5 font-mono text-xs text-muted-foreground">{product.sku}</p></div></div></TableCell>
-                  <TableCell className="priority-low whitespace-nowrap font-mono text-xs">{formatMoney(product.sourcePrice)}</TableCell><TableCell className="whitespace-nowrap font-mono text-xs font-medium">{formatMoney(product.sellingPrice)}</TableCell><TableCell className="priority-medium font-mono text-xs">{product.stock}</TableCell><TableCell><StatusBadge status={product.status} /></TableCell><TableCell className="priority-low whitespace-nowrap text-sm text-muted-foreground">{t(product.updatedAt)}</TableCell>
-                  <TableCell onClick={(event) => event.stopPropagation()}><DropdownMenu><DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label={`${t("Actions")} · ${product.name}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>{t("Product actions")}</DropdownMenuLabel><DropdownMenuItem onClick={() => setSelected(product)}>{t("View details")}</DropdownMenuItem><DropdownMenuItem onClick={() => setNotice(t("Sync requires a connected Shopee publisher."))}>{t("Queue sync")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteCandidate(product)}><Trash2 className="size-4" />{t("Delete product")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
+                  <TableCell className="overflow-hidden"><div className="flex min-w-0 items-center gap-3"><ProductAvatar accent={product.accent} /><div className="min-w-0"><p className="truncate font-medium" title={product.name}>{product.name}</p><p className="mt-0.5 truncate font-mono text-xs text-muted-foreground" title={product.sku}>{product.sku}</p></div></div></TableCell>
+                  <TableCell className="priority-low whitespace-nowrap font-mono text-xs tabular-nums">{formatMoney(product.sourcePrice)}</TableCell><TableCell className="whitespace-nowrap font-mono text-xs font-medium tabular-nums">{formatMoney(product.sellingPrice)}</TableCell><TableCell className="priority-medium font-mono text-xs tabular-nums">{product.stock}</TableCell><TableCell><StatusBadge status={product.status} /></TableCell><TableCell className="priority-low whitespace-nowrap text-sm text-muted-foreground">{t(product.updatedAt)}</TableCell>
+                  <TableCell onClick={(event) => event.stopPropagation()}><DropdownMenu><DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label={`${t("Actions")} · ${product.name}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>{t("Product actions")}</DropdownMenuLabel><DropdownMenuItem onClick={() => setSelected(product)}>{t("View details")}</DropdownMenuItem><DropdownMenuItem onClick={() => setReextractCandidate(product)}><RefreshCw className="size-4" />{t("Refresh from JakMall")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteCandidate(product)}><Trash2 className="size-4" />{t("Delete product")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
                 </TableRow>
               )) : <TableRow><TableCell colSpan={7} className="h-40 text-center"><p className="font-medium">{t("No products found")}</p><p className="mt-1 text-sm text-muted-foreground">{t("Try another search term or status.")}</p></TableCell></TableRow>}
             </TableBody>
@@ -286,12 +308,15 @@ export function ProductsView({ initialProducts, initialSelectedId }: { initialPr
         </div>
       </Card>
 
-      {selected ? <ProductDetailsDialog key={selected.id} summary={selected} onClose={() => setSelected(null)} onUpdated={() => router.refresh()} onRequestDelete={setDeleteCandidate} /> : null}
+      {selected ? <ProductDetailsDialog key={selected.id} summary={selected} onClose={() => setSelected(null)} onUpdated={() => router.refresh()} onRequestDelete={setDeleteCandidate} onRequestReextract={setReextractCandidate} /> : null}
       <AlertDialog open={Boolean(deleteCandidate)} onOpenChange={(open) => { if (!open && !deleting) setDeleteCandidate(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle>{t("Delete this product?")}</AlertDialogTitle><AlertDialogDescription>{t("{name} and its saved images and variants will be removed from the local catalog. Processing history will remain available.", { name: deleteCandidate?.name ?? "" })}</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel disabled={deleting}>{t("Cancel")}</AlertDialogCancel><AlertDialogAction disabled={deleting} onClick={(event) => { event.preventDefault(); void confirmDelete(); }}>{deleting ? <CircleDashed className="size-4 animate-spin" /> : <Trash2 className="size-4" />}{t("Delete product")}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={Boolean(reextractCandidate)} onOpenChange={(open) => { if (!open && !reextracting) setReextractCandidate(null); }}>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t("Refresh this product from JakMall?")}</AlertDialogTitle><AlertDialogDescription>{t("Current source fields, images, price, stock, and SKU will be replaced by a new extraction. The destination category is preserved.")}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={reextracting}>{t("Cancel")}</AlertDialogCancel><AlertDialogAction disabled={reextracting} onClick={(event) => { event.preventDefault(); void confirmReextract(); }}>{reextracting ? <CircleDashed className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}{t("Queue refresh")}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
     </div>
   );

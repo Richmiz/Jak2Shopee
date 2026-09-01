@@ -40,7 +40,19 @@ test("uses rendered browser hints when JakMall omits structured product fields",
   assert.equal(product.sourcePrice, 60900);
   assert.equal(product.sellingPrice, 73080);
   assert.equal(product.sku, "SKU-RENDERED");
+  assert.equal(product.stock, 1);
   assert.equal(product.weightGrams, 1300);
+});
+
+test("applies persisted pricing policy deterministically", () => {
+  const product = parseJakMallProduct(
+    `<script type="application/ld+json">{"@type":"Product","name":"Jual Pricing example","sku":"PRICE-1","offers":{"@type":"Offer","price":"607000","inventoryLevel":5}}</script>`,
+    "https://www.jakmall.com/store/pricing-example",
+    { markupPercent: 20, minimumMarginPercent: 25, marketplaceBuffer: 5000, roundingRule: 1000 },
+  );
+  assert.equal(product.title, "Pricing example");
+  assert.equal(product.stock, 5);
+  assert.equal(product.sellingPrice, 764000);
 });
 
 test("prefers the visible product description and reconciles the listed JakMall price", () => {
@@ -63,4 +75,18 @@ test("prefers the visible product description and reconciles the listed JakMall 
   assert.equal(product.sourcePrice, 309_000);
   assert.equal(product.sellingPrice, 370_800);
   assert.equal(product.weightGrams, 6000);
+});
+
+test("removes adjacent storefront labels and keeps the exact stock quantity", async () => {
+  const html = await readFile(new URL("./fixtures/jakmall-visible-stock.html", import.meta.url), "utf8");
+  const product = parseJakMallProduct(
+    html,
+    "https://www.jakmall.com/store/jacal-electric-kettle",
+    { markupPercent: 20, validateImages: false, detectDuplicates: true, requireReview: true },
+  );
+
+  assert.equal(product.title, "JACAL Teko Listrik Kopi Pemanas Air Leher Angsa Pour Over");
+  assert.equal(product.sku, "7CHWVUGY");
+  assert.equal(product.stock, 5);
+  assert.equal(product.warnings.includes("Exact stock quantity needs confirmation."), false);
 });

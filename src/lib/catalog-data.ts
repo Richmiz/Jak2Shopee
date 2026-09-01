@@ -6,7 +6,8 @@ export type ProductStatus =
   | "DRAFT"
   | "READY"
   | "BLOCKED"
-  | "DUPLICATE";
+  | "DUPLICATE"
+  | "CANCELLED";
 
 export type Product = {
   id: string;
@@ -21,6 +22,9 @@ export type Product = {
   weightGrams: number;
   category: string;
   accent: string;
+  latestJobId?: string;
+  parserVersion?: string;
+  needsRefresh?: boolean;
 };
 
 export type ProductDetailImage = {
@@ -54,7 +58,9 @@ export type ProductDetails = Product & {
 };
 
 export type JobEvent = { time: string; level: "INFO" | "SUCCESS" | "WARNING" | "ERROR"; message: string };
-export type Job = { id: string; productName: string; status: ProductStatus; stage: string; attempts: number; duration: string; startedAt: string; evidencePath?: string; errorMessage?: string; events: JobEvent[] };
+export type JobRunStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+export type Job = { id: string; productId?: string; sourceUrl: string; productName: string; status: ProductStatus; runStatus: JobRunStatus; stage: string; attempts: number; maxAttempts: number; duration: string; startedAt: string; evidencePath?: string; errorCode?: string; errorMessage?: string; events: JobEvent[] };
+export type JobsPage = { jobs: Job[]; page: number; pageSize: number; total: number; totalPages: number };
 
 export function formatMoney(value: number) {
   return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value);

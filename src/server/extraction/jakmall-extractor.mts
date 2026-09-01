@@ -8,7 +8,7 @@ import { selectRenderedPrice, type RenderedPriceCandidate } from "./rendered-pri
 type StageReporter = (stage: string, message: string, level?: "INFO" | "SUCCESS" | "WARNING" | "ERROR") => void;
 type BrowserMode = "adaptive" | "headless" | "visible";
 
-function browserMode(): BrowserMode {
+export function configuredBrowserMode(): BrowserMode {
   const configured = process.env.CATALOGBRIDGE_BROWSER_MODE?.trim().toLowerCase();
   if (configured === "headless" || configured === "visible" || configured === "adaptive") return configured;
   // Preserve an explicitly headless legacy configuration. The old `false`
@@ -36,6 +36,7 @@ function targetWasClosed(error: unknown) {
 export class JakMallExtractor {
   private context?: BrowserContext;
   private contextHeadless?: boolean;
+  constructor(private readonly profileSuffix = "") {}
 
   private async resetContext() {
     const context = this.context;
@@ -47,7 +48,8 @@ export class JakMallExtractor {
   private async getContext(headless: boolean) {
     if (this.context && this.contextHeadless === headless) return this.context;
     if (this.context) await this.resetContext();
-    const profilePath = path.resolve(process.env.CATALOGBRIDGE_BROWSER_PROFILE || path.join(process.cwd(), "data", "browser-profile"));
+    const baseProfilePath = path.resolve(process.env.CATALOGBRIDGE_BROWSER_PROFILE || path.join(process.cwd(), "data", "browser-profile"));
+    const profilePath = this.profileSuffix ? `${baseProfilePath}-${this.profileSuffix}` : baseProfilePath;
     await mkdir(profilePath, { recursive: true });
     const context = await chromium.launchPersistentContext(profilePath, {
       channel: process.env.CATALOGBRIDGE_CHROME_CHANNEL || "chrome",
@@ -104,9 +106,9 @@ export class JakMallExtractor {
     }
   }
 
-  private async navigate(page: Page, sourceUrl: string) {
-    page.setDefaultTimeout(Number(process.env.CATALOGBRIDGE_PAGE_TIMEOUT_MS || 45_000));
-    const response = await page.goto(sourceUrl, { waitUntil: "domcontentloaded", timeout: Number(process.env.CATALOGBRIDGE_PAGE_TIMEOUT_MS || 45_000) });
+  private async navigate(page: Page, sourceUrl: string, timeoutMs: number) {
+    page.setDefaultTimeout(timeoutMs);
+    const response = await page.goto(sourceUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     if (response?.status() === 404) throw new CatalogError("SOURCE_NOT_FOUND", "The JakMall product page returned 404.");
     if (!isJakMallHost(page.url())) throw new CatalogError("INVALID_SOURCE_URL", "JakMall redirected outside the allowed domain.");
     await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
@@ -180,11 +182,15 @@ export class JakMallExtractor {
         .filter((candidate) => candidate.amount > 0);
 
       const bodyText = clean(body.textContent);
-      const sku = bodyText.match(/Kode\s+SKU\s*:?\s*([A-Z0-9_-]+)/i)?.[1];
+      const sku = bodyText.match(/(?:Kode\s+)?SKU\s*:?\s*([A-Z0-9][A-Z0-9_-]{2,99}?)(?=\s*(?:Garansi|Warranty|Stok|Stock|Berat|Weight|Harga|Price|$))/i)?.[1]
+        ?? bodyText.match(/(?:Kode\s+)?SKU\s*:?\s*([A-Z0-9][A-Z0-9_-]{2,99})/i)?.[1];
       const weightMatch = bodyText.match(/(?:Berat|Weight)\s*:?\s*([\d.,]+)\s*(kg|g|gram)/i);
       const weightAmount = weightMatch ? Number(weightMatch[1].replace(",", ".")) : 0;
       const weightGrams = weightMatch ? Math.round(weightMatch[2].toLowerCase() === "kg" ? weightAmount * 1000 : weightAmount) : undefined;
-      const stock = /Stok\s+Tersedia|In\s+Stock/i.test(bodyText) ? 1 : undefined;
+      const stockMatch = bodyText.match(/(?:Stok|Stock)(?:\s+(?:Tersedia|Tersisa|Available))?\s*:?\s*(\d[\d.,]*)/i)
+        ?? bodyText.match(/(?:Tersedia|Tersisa|Available)\s*:?\s*(\d[\d.,]*)\s*(?:pcs|buah|unit)?/i)
+        ?? bodyText.match(/(\d[\d.,]*)\s*(?:pcs|buah|unit)\s*(?:tersedia|tersisa|available|in stock)/i);
+      const stock = stockMatch ? Number(stockMatch[1].replace(/[^\d]/g, "")) : undefined;
       const descriptionHeading = [...body.querySelectorAll("h2,h3,h4")].find((element) => /Informasi Produk|Product Information|Deskripsi Produk|Product Description/i.test(clean(element.textContent)));
       const descriptionRoot = descriptionHeading?.nextElementSibling ?? descriptionHeading?.parentElement;
       const description = descriptionRoot
@@ -209,8 +215,8 @@ export class JakMallExtractor {
     };
   }
 
-  private async waitForVerification(page: Page) {
-    const deadline = Date.now() + Number(process.env.CATALOGBRIDGE_VERIFICATION_TIMEOUT_MS || 120_000);
+  private async waitForVerification(page: Page, timeoutMs: number) {
+    const deadline = Date.now() + Number(process.env.CATALOGBRIDGE_VERIFICATION_TIMEOUT_MS || Math.max(timeoutMs, 120_000));
     let signals = await this.pageSignals(page);
     while (Date.now() < deadline && isVerificationPage(signals.bodyText, signals.title)) {
       await page.waitForTimeout(1000);
@@ -221,7 +227,8 @@ export class JakMallExtractor {
 
   async extract(jobId: string, sourceUrl: string, options: ImportOptions, report: StageReporter): Promise<NormalizedProduct> {
     assertJakMallUrl(sourceUrl);
-    const mode = browserMode();
+    const mode = configuredBrowserMode();
+    const timeoutMs = options.browserTimeoutSeconds * 1000;
     let context: BrowserContext | undefined;
     let page: Page | undefined;
     let temporaryVisibleWindow = false;
@@ -230,8 +237,13 @@ export class JakMallExtractor {
       context = initial.context;
       page = initial.page;
       report("NAVIGATING", "Opening the JakMall product in the background browser.");
-      await this.navigate(page, sourceUrl);
+      await this.navigate(page, sourceUrl, timeoutMs);
       let signals = await this.pageSignals(page);
+
+      if (isVerificationPage(signals.bodyText, signals.title) && !options.pauseOnVerification) {
+        const evidencePath = await this.captureEvidence(page, jobId);
+        throw new CatalogError("SOURCE_VERIFICATION_REQUIRED", "JakMall verification requires operator attention and pausing is disabled for this job.", false, evidencePath);
+      }
 
       if (isVerificationPage(signals.bodyText, signals.title) && mode === "adaptive") {
         report("WAITING_FOR_INPUT", "JakMall requires a one-time verification. Complete it in the temporary Chrome window.", "WARNING");
@@ -240,8 +252,8 @@ export class JakMallExtractor {
         context = visible.context;
         page = visible.page;
         temporaryVisibleWindow = true;
-        await this.navigate(page, sourceUrl);
-        if (!await this.waitForVerification(page)) {
+        await this.navigate(page, sourceUrl, timeoutMs);
+        if (!await this.waitForVerification(page, timeoutMs)) {
           const evidencePath = await this.captureEvidence(page, jobId);
           throw new CatalogError("SOURCE_VERIFICATION_REQUIRED", "JakMall verification was not completed before the local timeout.", false, evidencePath);
         }
@@ -253,7 +265,7 @@ export class JakMallExtractor {
           throw new CatalogError("SOURCE_VERIFICATION_REQUIRED", "JakMall requires verification. Use adaptive browser mode for the one-time prompt.", false, evidencePath);
         }
         report("WAITING_FOR_INPUT", "Complete the JakMall verification in the Chrome window.", "WARNING");
-        if (!await this.waitForVerification(page)) {
+        if (!await this.waitForVerification(page, timeoutMs)) {
           const evidencePath = await this.captureEvidence(page, jobId);
           throw new CatalogError("SOURCE_VERIFICATION_REQUIRED", "JakMall verification was not completed before the local timeout.", false, evidencePath);
         }

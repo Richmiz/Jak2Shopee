@@ -191,7 +191,7 @@ function ProductGallery({ product }: { product: PreviewProduct }) {
   </div>;
 }
 
-export function ImportWorkspace({ initialMode = "single" }: { initialMode?: ImportMode }) {
+export function ImportWorkspace({ initialMode = "single", initialDefaults = { markupPercent: 20, validateImages: true, detectDuplicates: true, requireReview: true } }: { initialMode?: ImportMode; initialDefaults?: { markupPercent: number; validateImages: boolean; detectDuplicates: boolean; requireReview: boolean } }) {
   const { t } = useLanguage();
   const pollToken = useRef(0);
   const toastTimer = useRef<number | null>(null);
@@ -199,10 +199,10 @@ export function ImportWorkspace({ initialMode = "single" }: { initialMode?: Impo
   const [step, setStep] = useState<Step>(1);
   const [sourceUrl, setSourceUrl] = useState("");
   const [batchUrls, setBatchUrls] = useState("");
-  const [markup, setMarkup] = useState("20");
-  const [validateImages, setValidateImages] = useState(true);
-  const [detectDuplicates, setDetectDuplicates] = useState(true);
-  const [requireReview, setRequireReview] = useState(true);
+  const [markup, setMarkup] = useState(String(initialDefaults.markupPercent));
+  const [validateImages, setValidateImages] = useState(initialDefaults.validateImages);
+  const [detectDuplicates, setDetectDuplicates] = useState(initialDefaults.detectDuplicates);
+  const [requireReview, setRequireReview] = useState(initialDefaults.requireReview);
   const [processing, setProcessing] = useState(false);
   const [feedback, setFeedback] = useState<Message | null>(null);
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>("info");

@@ -2,10 +2,36 @@ import { z } from "zod";
 
 export const importOptionsSchema = z.object({
   markupPercent: z.coerce.number().min(0).max(500).default(20),
+  minimumMarginPercent: z.coerce.number().min(0).max(500).default(10),
+  marketplaceBuffer: z.coerce.number().int().min(0).max(100_000_000).default(0),
+  roundingRule: z.union([z.literal(0), z.literal(500), z.literal(1000)]).default(0),
   validateImages: z.boolean().default(true),
   detectDuplicates: z.boolean().default(true),
   requireReview: z.boolean().default(true),
+  automaticRetry: z.boolean().default(true),
+  maxAttempts: z.coerce.number().int().min(1).max(5).default(3),
+  pauseOnVerification: z.boolean().default(true),
+  browserTimeoutSeconds: z.coerce.number().int().min(15).max(180).default(45),
 });
+
+export const workspaceSettingsSchema = z.object({
+  publisherMode: z.literal("dry-run").default("dry-run"),
+  defaultMarkupPercent: z.coerce.number().min(0).max(500).default(20),
+  minimumMarginPercent: z.coerce.number().min(0).max(500).default(10),
+  marketplaceBuffer: z.coerce.number().int().min(0).max(100_000_000).default(0),
+  roundingRule: z.union([z.literal(0), z.literal(500), z.literal(1000)]).default(1000),
+  automaticRetry: z.boolean().default(true),
+  maxAttempts: z.coerce.number().int().min(1).max(5).default(3),
+  pauseOnVerification: z.boolean().default(true),
+  validateImagesByDefault: z.boolean().default(true),
+  detectDuplicatesByDefault: z.boolean().default(true),
+  requireReviewByDefault: z.boolean().default(true),
+  maximumConcurrentJobs: z.coerce.number().int().min(1).max(3).default(1),
+  browserTimeoutSeconds: z.coerce.number().int().min(15).max(180).default(45),
+  sessionTimeoutHours: z.coerce.number().int().min(1).max(72).default(8),
+});
+
+export const defaultWorkspaceSettings = workspaceSettingsSchema.parse({});
 
 export const jakMallUrlSchema = z
   .string()
@@ -18,7 +44,7 @@ export const jakMallUrlSchema = z
 
 export const createImportSchema = z.object({
   urls: z.array(jakMallUrlSchema).min(1).max(20),
-  options: importOptionsSchema.default({ markupPercent: 20, validateImages: true, detectDuplicates: true, requireReview: true }),
+  options: importOptionsSchema.partial().default({}),
 });
 
 export const updateProductSchema = z.object({
@@ -33,6 +59,7 @@ export const updateProductSchema = z.object({
 });
 
 export type ImportOptions = z.infer<typeof importOptionsSchema>;
+export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 
 export type ProductImage = {
   sourceUrl: string;
@@ -79,6 +106,7 @@ export type CatalogErrorCode =
   | "REQUIRED_FIELD_MISSING"
   | "IMAGE_VALIDATION_FAILED"
   | "DUPLICATE_PRODUCT"
+  | "JOB_CANCELLED"
   | "WORKER_ERROR";
 
 export class CatalogError extends Error {
