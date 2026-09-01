@@ -36,7 +36,11 @@ function targetWasClosed(error: unknown) {
 export class JakMallExtractor {
   private context?: BrowserContext;
   private contextHeadless?: boolean;
-  constructor(private readonly profileSuffix = "") {}
+  private readonly profileSuffix: string;
+
+  constructor(profileSuffix = "") {
+    this.profileSuffix = profileSuffix;
+  }
 
   private async resetContext() {
     const context = this.context;
