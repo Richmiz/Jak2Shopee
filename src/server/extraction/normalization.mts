@@ -49,7 +49,7 @@ export function extractExactStock(value: unknown): number | undefined {
 export function extractStockFromText(value: string) {
   const normalized = value.replace(/\s+/g, " ");
   const patterns = [
-    /(?:stok|stock)(?:\s+(?:tersedia|tersisa|available))?\s*:?\s*(\d[\d.,]*)/i,
+    /(?:stok|stock)(?:\s+(?:tersedia|tersisa|tinggal|sisa|available|remaining|left))?\s*:?\s*(\d[\d.,]*)/i,
     /(?:tersedia|tersisa|available)\s*:?\s*(\d[\d.,]*)\s*(?:pcs|buah|unit)?/i,
     /(\d[\d.,]*)\s*(?:pcs|buah|unit)\s*(?:tersedia|tersisa|available|in stock)/i,
   ];

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { parseJakMallProduct } from "../src/server/extraction/jakmall-parser.mts";
+import { extractStockFromText } from "../src/server/extraction/normalization.mts";
 import { jakMallUrlSchema } from "../src/server/catalog-types.mts";
 
 test("accepts only HTTPS JakMall hosts", () => {
@@ -89,4 +90,9 @@ test("removes adjacent storefront labels and keeps the exact stock quantity", as
   assert.equal(product.sku, "7CHWVUGY");
   assert.equal(product.stock, 5);
   assert.equal(product.warnings.includes("Exact stock quantity needs confirmation."), false);
+});
+
+test("recognizes JakMall's limited-stock wording", () => {
+  assert.equal(extractStockFromText("Stok Tinggal 5"), 5);
+  assert.equal(extractStockFromText("Terbatas! Stok Sisa 5"), 5);
 });

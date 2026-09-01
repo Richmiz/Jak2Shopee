@@ -191,7 +191,7 @@ export class JakMallExtractor {
       const weightMatch = bodyText.match(/(?:Berat|Weight)\s*:?\s*([\d.,]+)\s*(kg|g|gram)/i);
       const weightAmount = weightMatch ? Number(weightMatch[1].replace(",", ".")) : 0;
       const weightGrams = weightMatch ? Math.round(weightMatch[2].toLowerCase() === "kg" ? weightAmount * 1000 : weightAmount) : undefined;
-      const stockMatch = bodyText.match(/(?:Stok|Stock)(?:\s+(?:Tersedia|Tersisa|Available))?\s*:?\s*(\d[\d.,]*)/i)
+      const stockMatch = bodyText.match(/(?:Stok|Stock)(?:\s+(?:Tersedia|Tersisa|Tinggal|Sisa|Available|Remaining|Left))?\s*:?\s*(\d[\d.,]*)/i)
         ?? bodyText.match(/(?:Tersedia|Tersisa|Available)\s*:?\s*(\d[\d.,]*)\s*(?:pcs|buah|unit)?/i)
         ?? bodyText.match(/(\d[\d.,]*)\s*(?:pcs|buah|unit)\s*(?:tersedia|tersisa|available|in stock)/i);
       const stock = stockMatch ? Number(stockMatch[1].replace(/[^\d]/g, "")) : undefined;
